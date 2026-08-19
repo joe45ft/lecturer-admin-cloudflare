@@ -136,6 +136,20 @@ function safeDbDetail(value){
     .slice(0,320);
 }
 
+function stageError(code, stage, err){
+  const detail=safeDbDetail(err?.message||err);
+  const wrapped=new Error(detail);
+  wrapped.code=code;
+  wrapped.stage=stage;
+  wrapped.detail=detail;
+  return wrapped;
+}
+
+async function runStage(code, stage, fn){
+  try { return await fn(); }
+  catch(err){ throw stageError(code,stage,err); }
+}
+
 async function schemaStep(env, stage, sql){
   schemaStatus = { ready:false, stage, detail:'' };
   try {
@@ -319,18 +333,31 @@ async function ensureDatabaseSchema(env){
 async function api(request, env, path){
   if (path==='/api/system/health' && request.method==='GET') {
     if (!env?.DB || typeof env.DB.prepare !== 'function') {
-      return bad('قاعدة D1 غير مربوطة بالـWorker باسم DB.',503,'DB_NOT_CONFIGURED',{stage:'binding',version:'2.1.0'});
+      return bad('قاعدة D1 غير مربوطة بالـWorker باسم DB.',503,'DB_NOT_CONFIGURED',{stage:'binding',version:'2.1.1'});
     }
     try {
       await ensureDatabaseSchema(env);
       const adminCount = await env.DB.prepare(`SELECT COUNT(*) total FROM admins`).first();
-      return ok({ database:'ready', schema:'ready', stage:'ready', admin_count:Number(adminCount?.total||0), setup_required:Number(adminCount?.total||0)===0, version:'2.1.0' });
+      return ok({ database:'ready', schema:'ready', stage:'ready', admin_count:Number(adminCount?.total||0), setup_required:Number(adminCount?.total||0)===0, version:'2.1.1' });
     } catch(err) {
-      return bad('قاعدة D1 مرتبطة، لكن تهيئة الجداول لم تكتمل.',503,err?.code||'DB_HEALTH_FAILED',{stage:err?.stage||schemaStatus.stage||'unknown',detail:safeDbDetail(err?.dbDetail||err?.message||schemaStatus.detail),version:'2.1.0'});
+      return bad('قاعدة D1 مرتبطة، لكن تهيئة الجداول لم تكتمل.',503,err?.code||'DB_HEALTH_FAILED',{stage:err?.stage||schemaStatus.stage||'unknown',detail:safeDbDetail(err?.dbDetail||err?.message||schemaStatus.detail),version:'2.1.1'});
     }
   }
 
   await ensureDatabaseSchema(env);
+
+  if (path==='/api/system/diagnostics' && request.method==='GET') {
+    const checks={};
+    const check=async(name,fn)=>{try{await fn();checks[name]={ok:true};}catch(err){checks[name]={ok:false,detail:safeDbDetail(err?.message||err)};}};
+    await check('db',()=>env.DB.prepare('SELECT 1').first());
+    await check('admins',()=>env.DB.prepare('SELECT COUNT(*) total FROM admins').first());
+    await check('sessions',()=>env.DB.prepare('SELECT COUNT(*) total FROM admin_sessions').first());
+    await check('settings',()=>env.DB.prepare('SELECT COUNT(*) total FROM settings').first());
+    await check('activity_logs',()=>env.DB.prepare('SELECT COUNT(*) total FROM activity_logs').first());
+    await check('crypto',async()=>{const salt='diagnostic-salt'; await hashPassword('DiagnosticPassword123!',salt);});
+    const allOk=Object.values(checks).every(x=>x.ok);
+    return json({ok:allOk,version:'2.1.1',checks},allOk?200:503);
+  }
 
   if (path==='/api/setup/status' && request.method==='GET') {
     const row=await env.DB.prepare(`SELECT COUNT(*) total FROM admins`).first();
@@ -338,21 +365,42 @@ async function api(request, env, path){
   }
 
   if (path==='/api/setup/owner' && request.method==='POST') {
-    const count=await env.DB.prepare(`SELECT COUNT(*) total FROM admins`).first();
+    const count=await runStage('SETUP_OWNER_FAILED','check_existing_owner',()=>env.DB.prepare(`SELECT COUNT(*) total FROM admins`).first());
     if(Number(count?.total||0)>0) return bad('تم إنشاء حساب الـOwner بالفعل. استخدم شاشة تسجيل الدخول.',409,'SETUP_COMPLETE');
+
     const d=await readBody(request), fullName=text(d.full_name,160), username=normalizeUsername(d.username).slice(0,80), password=String(d.password||'');
     if(!fullName) return bad('اسم الـOwner مطلوب.');
     if(!validUsername(username)) return bad(`اسم المستخدم يجب أن يكون من 3 إلى 80 حرفاً. القيمة المستلمة طولها ${username.length} حرف.`,400,'INVALID_USERNAME');
     if(password.length<10) return bad('كلمة المرور يجب ألا تقل عن 10 أحرف.');
-    const salt=randomToken(18), hash=await hashPassword(password,salt);
-    const r=await env.DB.prepare(`INSERT INTO admins(username,full_name,password_salt,password_hash,role,permissions,status,is_owner) SELECT ?,?,?,?,?,?,'active',1 WHERE NOT EXISTS (SELECT 1 FROM admins)`).bind(username,fullName,salt,hash,'super_admin',JSON.stringify(PERMISSIONS)).run();
-    if(!r.meta?.changes) return bad('تم إنشاء حساب الـOwner بالفعل من جلسة أخرى.',409,'SETUP_COMPLETE');
-    const owner=await env.DB.prepare(`SELECT * FROM admins WHERE id=?`).bind(r.meta.last_row_id).first();
-    const session=await createDbSession(env,owner.id);
-    await env.DB.prepare(`UPDATE admins SET last_login_at=CURRENT_TIMESTAMP WHERE id=?`).bind(owner.id).run();
-    await log(env,publicAdmin(owner),'Owner Account Created','admin',owner.id,username);
+
+    const salt=randomToken(18);
+    const hash=await runStage('SETUP_OWNER_FAILED','hash_password',()=>hashPassword(password,salt));
+
+    const insertResult=await runStage('SETUP_OWNER_FAILED','insert_owner',()=>
+      env.DB.prepare(`INSERT INTO admins(username,full_name,password_salt,password_hash,role,permissions,status,is_owner)
+        SELECT ?,?,?,?,?,?,'active',1 WHERE NOT EXISTS (SELECT 1 FROM admins)`)
+        .bind(username,fullName,salt,hash,'super_admin',JSON.stringify(PERMISSIONS)).run()
+    );
+    if(!insertResult?.meta?.changes) return bad('تم إنشاء حساب الـOwner بالفعل من جلسة أخرى.',409,'SETUP_COMPLETE');
+
+    // Resolve by the unique username rather than relying on D1 last_row_id metadata.
+    const owner=await runStage('SETUP_OWNER_FAILED','load_created_owner',()=>
+      env.DB.prepare(`SELECT * FROM admins WHERE username=? COLLATE NOCASE`).bind(username).first()
+    );
+    if(!owner) throw stageError('SETUP_OWNER_FAILED','load_created_owner',new Error('Owner row was inserted but could not be read back.'));
+
+    const session=await runStage('SETUP_OWNER_FAILED','create_session',()=>createDbSession(env,owner.id));
+    await runStage('SETUP_OWNER_FAILED','update_last_login',()=>
+      env.DB.prepare(`UPDATE admins SET last_login_at=CURRENT_TIMESTAMP WHERE id=?`).bind(owner.id).run()
+    );
+
+    // Audit logging is useful but must never invalidate an already-created owner/session.
+    try { await log(env,publicAdmin(owner),'Owner Account Created','admin',owner.id,username); }
+    catch(err){ console.error('Owner audit log failed',safeDbDetail(err?.message||err)); }
+
     return ok({admin:publicAdmin(owner),csrf_token:session.csrf},201,{ 'set-cookie':cookie('admin_session',session.token) });
   }
+
 
   if (path==='/api/auth/login' && request.method==='POST') {
     const count=await env.DB.prepare(`SELECT COUNT(*) total FROM admins`).first();
@@ -557,6 +605,7 @@ export default {
       if(err?.code==='DB_NOT_CONFIGURED' || msg.includes('D1 binding DB is not configured')) return securityHeaders(bad('قاعدة D1 غير مربوطة بالموقع. اربطها بالـ binding باسم DB.',503,'DB_NOT_CONFIGURED',{stage:err?.stage||'binding'}));
       if(err?.code==='DB_CONNECTION_FAILED') return securityHeaders(bad('تعذر الاتصال بقاعدة D1 المرتبطة.',503,'DB_CONNECTION_FAILED',{stage:err?.stage||'connection_test',detail:safeDbDetail(err?.dbDetail||msg)}));
       if(err?.code==='DB_SCHEMA_INIT_FAILED' || msg.includes('no such table')) return securityHeaders(bad('حدث خطأ أثناء تجهيز قاعدة D1.',503,'DB_SCHEMA_INIT_FAILED',{stage:err?.stage||schemaStatus.stage||'schema',detail:safeDbDetail(err?.dbDetail||msg)}));
+      if(err?.code==='SETUP_OWNER_FAILED') return securityHeaders(bad('تعذر إكمال إنشاء حساب الـOwner في هذه المرحلة.',500,'SETUP_OWNER_FAILED',{stage:err?.stage||'owner_setup',detail:safeDbDetail(err?.detail||msg)}));
       if(msg.includes('UNIQUE constraint failed')&&msg.includes('enrollments'))return securityHeaders(bad('هذا الطالب مسجل بالفعل مع هذا المحاضر.',409,'DUPLICATE_ENROLLMENT'));
       if(/D1_|SQLITE_|database|no such column|constraint failed/i.test(msg)) return securityHeaders(bad('حدث خطأ أثناء تنفيذ عملية على قاعدة D1.',500,'DB_OPERATION_FAILED',{stage:'request',detail:safeDbDetail(msg)}));
       console.error('Internal error detail:', msg);
