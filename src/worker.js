@@ -12,6 +12,7 @@ const PERMISSIONS = [
 ];
 
 const ROLE_PRESETS = {
+  owner: [...PERMISSIONS],
   super_admin: [...PERMISSIONS],
   manager: PERMISSIONS.filter(p => !['admins.view','admins.manage','settings.manage'].includes(p)),
   finance: ['dashboard.view','lecturers.view','students.view','enrollments.view','payments.view','payments.create','finance.view','subscriptions.renew'],
@@ -72,22 +73,13 @@ function normalizePermissions(role, raw){
 }
 function parsePermissions(row){
   if (!row) return [];
-  if (row.role === 'super_admin') return [...PERMISSIONS];
+  if (row.role === 'owner' || row.role === 'super_admin') return [...PERMISSIONS];
   try { const custom=JSON.parse(row.permissions||'[]'); return normalizePermissions(row.role, custom); } catch { return normalizePermissions(row.role, []); }
 }
-function publicAdmin(row){ return { id:row.id, username:row.username, full_name:row.full_name, role:row.role, permissions:parsePermissions(row), status:row.status, last_login_at:row.last_login_at, created_at:row.created_at }; }
-function hasPermission(admin, permission){ if (!admin) return false; if (permission==='admins.manage') return admin.role==='super_admin'; return admin.role==='super_admin' || admin.permissions?.includes(permission); }
+function publicAdmin(row){ const role=Number(row?.is_owner||0)===1?'owner':row.role; return { id:row.id, username:row.username, full_name:row.full_name, role, permissions:role==='owner'?[...PERMISSIONS]:parsePermissions(row), status:row.status, last_login_at:row.last_login_at, created_at:row.created_at }; }
+function hasPermission(admin, permission){ if (!admin) return false; if (permission==='admins.manage') return admin.role==='owner'; return admin.role==='owner' || admin.role==='super_admin' || admin.permissions?.includes(permission); }
 function forbidUnless(admin, permission){ return hasPermission(admin,permission) ? null : bad('ليس لديك صلاحية لتنفيذ هذه العملية.',403,'FORBIDDEN'); }
 
-async function ensureBootstrapAdmin(env, username, password){
-  const row = await env.DB.prepare(`SELECT COUNT(*) total FROM admins`).first();
-  if (Number(row?.total||0) > 0) return;
-  if (!env.ADMIN_PASSWORD || !env.ADMIN_USERNAME) return;
-  if (username !== env.ADMIN_USERNAME || password !== env.ADMIN_PASSWORD) return;
-  const salt=randomToken(18), passwordHash=await hashPassword(password,salt);
-  await env.DB.prepare(`INSERT INTO admins(username,full_name,password_salt,password_hash,role,permissions,status) VALUES(?,?,?,?,?,?, 'active')`)
-    .bind(text(username,80), 'Super Admin', salt, passwordHash, 'super_admin', JSON.stringify(PERMISSIONS)).run();
-}
 async function createDbSession(env, adminId){
   const token=randomToken(32), tokenHash=await sha256(token), csrf=randomToken(24);
   const expiresAt=new Date(Date.now()+SESSION_SECONDS*1000).toISOString();
@@ -195,7 +187,7 @@ async function ensureDatabaseSchema(env){
         password_salt TEXT NOT NULL, password_hash TEXT NOT NULL,
         role TEXT NOT NULL DEFAULT 'viewer' CHECK(role IN ('super_admin','manager','finance','data_entry','viewer','custom')),
         permissions TEXT NOT NULL DEFAULT '[]', status TEXT NOT NULL DEFAULT 'active' CHECK(status IN ('active','suspended')),
-        last_login_at TEXT, failed_login_count INTEGER NOT NULL DEFAULT 0, locked_until TEXT,
+        last_login_at TEXT, failed_login_count INTEGER NOT NULL DEFAULT 0, locked_until TEXT, is_owner INTEGER NOT NULL DEFAULT 0 CHECK(is_owner IN (0,1)),
         created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
       )`,
       `CREATE TABLE IF NOT EXISTS admin_sessions (
@@ -228,6 +220,10 @@ async function ensureDatabaseSchema(env){
     if (!names.has('admin_id')) await env.DB.prepare(`ALTER TABLE activity_logs ADD COLUMN admin_id INTEGER`).run();
     if (!names.has('admin_name')) await env.DB.prepare(`ALTER TABLE activity_logs ADD COLUMN admin_name TEXT`).run();
 
+    const { results: adminCols = [] } = await env.DB.prepare(`PRAGMA table_info(admins)`).all();
+    const adminNames = new Set(adminCols.map(c => c.name));
+    if (!adminNames.has('is_owner')) await env.DB.prepare(`ALTER TABLE admins ADD COLUMN is_owner INTEGER NOT NULL DEFAULT 0 CHECK(is_owner IN (0,1))`).run();
+
     await env.DB.batch([
       env.DB.prepare(`INSERT OR IGNORE INTO settings(key,value) VALUES('platform_name','Lecturer Manager')`),
       env.DB.prepare(`INSERT OR IGNORE INTO settings(key,value) VALUES('currency','EGP')`),
@@ -250,15 +246,36 @@ async function api(request, env, path){
 
   if (path==='/api/system/health' && request.method==='GET') {
     const adminCount = await env.DB.prepare(`SELECT COUNT(*) total FROM admins`).first();
-    return ok({ database:'ready', schema:'ready', admin_count:Number(adminCount?.total||0), admin_secret_configured:Boolean(env.ADMIN_PASSWORD), admin_username:env.ADMIN_USERNAME||'admin' });
+    return ok({ database:'ready', schema:'ready', admin_count:Number(adminCount?.total||0), setup_required:Number(adminCount?.total||0)===0, version:'2.0.0' });
+  }
+
+  if (path==='/api/setup/status' && request.method==='GET') {
+    const row=await env.DB.prepare(`SELECT COUNT(*) total FROM admins`).first();
+    return ok({ setup_required:Number(row?.total||0)===0 });
+  }
+
+  if (path==='/api/setup/owner' && request.method==='POST') {
+    const count=await env.DB.prepare(`SELECT COUNT(*) total FROM admins`).first();
+    if(Number(count?.total||0)>0) return bad('تم إنشاء حساب الـOwner بالفعل. استخدم شاشة تسجيل الدخول.',409,'SETUP_COMPLETE');
+    const d=await readBody(request), fullName=text(d.full_name,160), username=text(d.username,80), password=String(d.password||'');
+    if(!fullName) return bad('اسم الـOwner مطلوب.');
+    if(!/^[A-Za-z0-9._-]{3,80}$/.test(username)) return bad('اسم المستخدم يجب أن يكون 3 أحرف على الأقل ويحتوي على حروف أو أرقام أو . _ - فقط.');
+    if(password.length<10) return bad('كلمة المرور يجب ألا تقل عن 10 أحرف.');
+    const salt=randomToken(18), hash=await hashPassword(password,salt);
+    const r=await env.DB.prepare(`INSERT INTO admins(username,full_name,password_salt,password_hash,role,permissions,status,is_owner) SELECT ?,?,?,?,?,?,'active',1 WHERE NOT EXISTS (SELECT 1 FROM admins)`).bind(username,fullName,salt,hash,'super_admin',JSON.stringify(PERMISSIONS)).run();
+    if(!r.meta?.changes) return bad('تم إنشاء حساب الـOwner بالفعل من جلسة أخرى.',409,'SETUP_COMPLETE');
+    const owner=await env.DB.prepare(`SELECT * FROM admins WHERE id=?`).bind(r.meta.last_row_id).first();
+    const session=await createDbSession(env,owner.id);
+    await env.DB.prepare(`UPDATE admins SET last_login_at=CURRENT_TIMESTAMP WHERE id=?`).bind(owner.id).run();
+    await log(env,publicAdmin(owner),'Owner Account Created','admin',owner.id,username);
+    return ok({admin:publicAdmin(owner),csrf_token:session.csrf},201,{ 'set-cookie':cookie('admin_session',session.token) });
   }
 
   if (path==='/api/auth/login' && request.method==='POST') {
-    if (!env.ADMIN_PASSWORD) return bad('إعداد ADMIN_PASSWORD غير موجود في Cloudflare. أضفه من Settings → Variables and Secrets كـ Secret ثم أعد Deploy.',503,'ADMIN_SECRET_MISSING');
-    if (!env.ADMIN_USERNAME) return bad('إعداد ADMIN_USERNAME غير موجود في Cloudflare.',503,'ADMIN_USERNAME_MISSING');
+    const count=await env.DB.prepare(`SELECT COUNT(*) total FROM admins`).first();
+    if(Number(count?.total||0)===0) return bad('أنشئ حساب الـOwner أولاً.',409,'SETUP_REQUIRED');
     const d=await readBody(request); const username=text(d.username,80), password=String(d.password||'');
     if (!username || !password) return bad('أدخل اسم المستخدم وكلمة المرور.');
-    await ensureBootstrapAdmin(env,username,password);
     const adminRow=await env.DB.prepare(`SELECT * FROM admins WHERE username=? COLLATE NOCASE`).bind(username).first();
     if (!adminRow || adminRow.status!=='active') return bad('اسم المستخدم أو كلمة المرور غير صحيحة.',401,'INVALID_CREDENTIALS');
     if (adminRow.locked_until) {
@@ -419,14 +436,14 @@ async function api(request, env, path){
     const denied=forbidUnless(admin,'admins.view');if(denied)return denied;return ok({permissions:PERMISSIONS,role_presets:ROLE_PRESETS});
   }
   if(path==='/api/admins'&&request.method==='GET'){
-    const denied=forbidUnless(admin,'admins.view');if(denied)return denied;const {results}=await env.DB.prepare(`SELECT id,username,full_name,role,permissions,status,last_login_at,created_at FROM admins ORDER BY id ASC`).all();return ok({items:results.map(publicAdmin)});
+    const denied=forbidUnless(admin,'admins.view');if(denied)return denied;const {results}=await env.DB.prepare(`SELECT id,username,full_name,role,permissions,status,last_login_at,created_at,is_owner FROM admins ORDER BY id ASC`).all();return ok({items:results.map(publicAdmin)});
   }
   if(path==='/api/admins'&&request.method==='POST'){
-    const denied=forbidUnless(admin,'admins.manage');if(denied)return denied;const d=await readBody(request),username=text(d.username,80),fullName=text(d.full_name,160),password=String(d.password||''),role=ROLE_PRESETS[d.role]?d.role:(d.role==='custom'?'custom':'viewer');if(!/^[A-Za-z0-9._-]{3,80}$/.test(username))return bad('اسم المستخدم يجب أن يكون 3 أحرف على الأقل ويحتوي على حروف أو أرقام فقط.');if(!fullName)return bad('اسم المسؤول مطلوب.');if(password.length<10)return bad('كلمة المرور يجب ألا تقل عن 10 أحرف.');const salt=randomToken(18),hash=await hashPassword(password,salt),permissions=normalizePermissions(role,d.permissions);try{const r=await env.DB.prepare(`INSERT INTO admins(username,full_name,password_salt,password_hash,role,permissions,status) VALUES(?,?,?,?,?,?,?)`).bind(username,fullName,salt,hash,role,JSON.stringify(permissions),d.status==='suspended'?'suspended':'active').run();await log(env,admin,'Admin Created','admin',r.meta.last_row_id,username);return ok({id:r.meta.last_row_id},201);}catch(err){if(String(err.message).includes('UNIQUE'))return bad('اسم المستخدم مستخدم بالفعل.',409,'DUPLICATE_USERNAME');throw err;}
+    const denied=forbidUnless(admin,'admins.manage');if(denied)return denied;const d=await readBody(request),username=text(d.username,80),fullName=text(d.full_name,160),password=String(d.password||''),requestedRole=d.role==='owner'?'viewer':d.role,role=ROLE_PRESETS[requestedRole]?requestedRole:(requestedRole==='custom'?'custom':'viewer');if(!/^[A-Za-z0-9._-]{3,80}$/.test(username))return bad('اسم المستخدم يجب أن يكون 3 أحرف على الأقل ويحتوي على حروف أو أرقام فقط.');if(!fullName)return bad('اسم المسؤول مطلوب.');if(password.length<10)return bad('كلمة المرور يجب ألا تقل عن 10 أحرف.');const salt=randomToken(18),hash=await hashPassword(password,salt),permissions=normalizePermissions(role,d.permissions);try{const r=await env.DB.prepare(`INSERT INTO admins(username,full_name,password_salt,password_hash,role,permissions,status) VALUES(?,?,?,?,?,?,?)`).bind(username,fullName,salt,hash,role,JSON.stringify(permissions),d.status==='suspended'?'suspended':'active').run();await log(env,admin,'Admin Created','admin',r.meta.last_row_id,username);return ok({id:r.meta.last_row_id},201);}catch(err){if(String(err.message).includes('UNIQUE'))return bad('اسم المستخدم مستخدم بالفعل.',409,'DUPLICATE_USERNAME');throw err;}
   }
   const adminMatch=path.match(/^\/api\/admins\/(\d+)$/);
   if(adminMatch&&request.method==='PUT'){
-    const denied=forbidUnless(admin,'admins.manage');if(denied)return denied;const id=Number(adminMatch[1]),d=await readBody(request),target=await env.DB.prepare(`SELECT * FROM admins WHERE id=?`).bind(id).first();if(!target)return bad('المسؤول غير موجود.',404,'NOT_FOUND');const username=text(d.username,80),fullName=text(d.full_name,160),role=ROLE_PRESETS[d.role]?d.role:(d.role==='custom'?'custom':target.role),status=d.status==='suspended'?'suspended':'active',permissions=normalizePermissions(role,d.permissions);if(!/^[A-Za-z0-9._-]{3,80}$/.test(username)||!fullName)return bad('بيانات المسؤول غير صحيحة.');if(id===admin.id&&status!=='active')return bad('لا يمكنك تعليق حسابك الحالي.');if(target.role==='super_admin'&&(role!=='super_admin'||status!=='active')){const c=await env.DB.prepare(`SELECT COUNT(*) total FROM admins WHERE role='super_admin' AND status='active'`).first();if(Number(c.total)<=1)return bad('يجب أن يظل هناك Super Admin نشط واحد على الأقل.');}try{await env.DB.prepare(`UPDATE admins SET username=?,full_name=?,role=?,permissions=?,status=?,updated_at=CURRENT_TIMESTAMP WHERE id=?`).bind(username,fullName,role,JSON.stringify(permissions),status,id).run();if(status==='suspended')await env.DB.prepare(`DELETE FROM admin_sessions WHERE admin_id=?`).bind(id).run();await log(env,admin,'Admin Updated','admin',id,username);return ok();}catch(err){if(String(err.message).includes('UNIQUE'))return bad('اسم المستخدم مستخدم بالفعل.',409,'DUPLICATE_USERNAME');throw err;}
+    const denied=forbidUnless(admin,'admins.manage');if(denied)return denied;const id=Number(adminMatch[1]),d=await readBody(request),target=await env.DB.prepare(`SELECT * FROM admins WHERE id=?`).bind(id).first();if(!target)return bad('المسؤول غير موجود.',404,'NOT_FOUND');const username=text(d.username,80),fullName=text(d.full_name,160),requestedRole=(d.role==='owner'?'super_admin':d.role),role=Number(target.is_owner||0)===1?'super_admin':(ROLE_PRESETS[requestedRole]?requestedRole:(requestedRole==='custom'?'custom':target.role)),status=Number(target.is_owner||0)===1?'active':(d.status==='suspended'?'suspended':'active'),permissions=normalizePermissions(role,d.permissions);if(!/^[A-Za-z0-9._-]{3,80}$/.test(username)||!fullName)return bad('بيانات المسؤول غير صحيحة.');if(id===admin.id&&status!=='active')return bad('لا يمكنك تعليق حسابك الحالي.');if(Number(target.is_owner||0)===1&&(status!=='active'||role!=='super_admin'))return bad('لا يمكن تغيير دور الـOwner أو إيقاف حسابه.');if(target.role==='super_admin'&&(role!=='super_admin'||status!=='active')){const c=await env.DB.prepare(`SELECT COUNT(*) total FROM admins WHERE role='super_admin' AND status='active'`).first();if(Number(c.total)<=1)return bad('يجب أن يظل هناك Super Admin نشط واحد على الأقل إذا كان هذا الدور مستخدماً.');}try{await env.DB.prepare(`UPDATE admins SET username=?,full_name=?,role=?,permissions=?,status=?,updated_at=CURRENT_TIMESTAMP WHERE id=?`).bind(username,fullName,role,JSON.stringify(permissions),status,id).run();if(status==='suspended')await env.DB.prepare(`DELETE FROM admin_sessions WHERE admin_id=?`).bind(id).run();await log(env,admin,'Admin Updated','admin',id,username);return ok();}catch(err){if(String(err.message).includes('UNIQUE'))return bad('اسم المستخدم مستخدم بالفعل.',409,'DUPLICATE_USERNAME');throw err;}
   }
   const resetMatch=path.match(/^\/api\/admins\/(\d+)\/reset-password$/);
   if(resetMatch&&request.method==='POST'){

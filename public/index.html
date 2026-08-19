@@ -11,13 +11,33 @@
 <body>
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
 
-  <section id="loginView" class="login-shell" aria-labelledby="loginTitle">
+  <section id="setupView" class="login-shell hidden" aria-labelledby="setupTitle">
+    <form id="setupForm" class="login-card setup-card" autocomplete="on">
+      <div class="brand-mark" aria-hidden="true">LM</div>
+      <span class="setup-kicker">FIRST TIME SETUP</span>
+      <h1 id="setupTitle">إنشاء حساب الـOwner</h1>
+      <p class="muted">هذا الحساب هو المالك الرئيسي للمنصة وصاحب أعلى صلاحية. تظهر هذه الشاشة مرة واحدة فقط.</p>
+      <label for="ownerFullName">الاسم الكامل</label>
+      <input id="ownerFullName" name="full_name" autocomplete="name" required maxlength="160" placeholder="مثال: Ahmed Hany" />
+      <label for="ownerUsername">اسم المستخدم</label>
+      <input id="ownerUsername" name="username" autocomplete="username" required minlength="3" maxlength="80" pattern="[A-Za-z0-9._-]+" dir="ltr" placeholder="owner" />
+      <label for="ownerPassword">كلمة المرور</label>
+      <input id="ownerPassword" name="password" type="password" autocomplete="new-password" required minlength="10" />
+      <label for="ownerPasswordConfirm">تأكيد كلمة المرور</label>
+      <input id="ownerPasswordConfirm" name="password_confirm" type="password" autocomplete="new-password" required minlength="10" />
+      <div class="password-hint">10 أحرف على الأقل. استخدم كلمة مرور قوية ولا تشاركها.</div>
+      <button class="btn primary wide" type="submit">إنشاء حساب الـOwner وبدء المنصة</button>
+      <small id="setupError" class="error" role="alert"></small>
+    </form>
+  </section>
+
+  <section id="loginView" class="login-shell hidden" aria-labelledby="loginTitle">
     <form id="loginForm" class="login-card" autocomplete="on">
       <div class="brand-mark" aria-hidden="true">LM</div>
       <h1 id="loginTitle">Lecturer Manager</h1>
       <p>لوحة إدارة المحاضرين والطلاب</p>
       <label for="loginUsername">اسم المستخدم</label>
-      <input id="loginUsername" name="username" value="admin" autocomplete="username" required maxlength="80" />
+      <input id="loginUsername" name="username" autocomplete="username" required maxlength="80" />
       <label for="loginPassword">كلمة المرور</label>
       <input id="loginPassword" name="password" type="password" autocomplete="current-password" required />
       <button class="btn primary" type="submit">تسجيل الدخول</button>
@@ -127,7 +147,7 @@
     <div class="modal-actions"><button type="button" class="btn ghost" data-close>إلغاء</button><button class="btn primary">حفظ الدفعة</button></div></form></dialog>
 
   <dialog id="adminModal"><form id="adminForm" class="modal-form wide"><div class="modal-head"><h3>حساب المسؤول</h3><button type="button" class="icon-btn" data-close aria-label="إغلاق">×</button></div><input type="hidden" name="id" />
-    <div class="form-grid"><label>الاسم الكامل<input name="full_name" required maxlength="160" /></label><label>اسم المستخدم<input name="username" required minlength="3" maxlength="80" pattern="[A-Za-z0-9._-]+" dir="ltr" /></label><label>الدور<select name="role"><option value="super_admin">Super Admin</option><option value="manager">Manager</option><option value="finance">Finance Admin</option><option value="data_entry">Data Entry</option><option value="viewer">Viewer</option><option value="custom">Custom</option></select></label><label>الحالة<select name="status"><option value="active">نشط</option><option value="suspended">موقوف</option></select></label><label id="adminPasswordField" class="full">كلمة المرور<input name="password" type="password" minlength="10" autocomplete="new-password" /></label><fieldset class="full permissions-box"><legend>الصلاحيات</legend><div id="permissionsGrid" class="permissions-grid"></div></fieldset></div>
+    <div class="form-grid"><label>الاسم الكامل<input name="full_name" required maxlength="160" /></label><label>اسم المستخدم<input name="username" required minlength="3" maxlength="80" pattern="[A-Za-z0-9._-]+" dir="ltr" /></label><label>الدور<select name="role"><option value="owner" disabled>Owner — Primary Account</option><option value="super_admin">Super Admin</option><option value="manager">Manager</option><option value="finance">Finance Admin</option><option value="data_entry">Data Entry</option><option value="viewer">Viewer</option><option value="custom">Custom</option></select></label><label>الحالة<select name="status"><option value="active">نشط</option><option value="suspended">موقوف</option></select></label><label id="adminPasswordField" class="full">كلمة المرور<input name="password" type="password" minlength="10" autocomplete="new-password" /></label><fieldset class="full permissions-box"><legend>الصلاحيات</legend><div id="permissionsGrid" class="permissions-grid"></div></fieldset></div>
     <div class="modal-actions"><button type="button" class="btn ghost" data-close>إلغاء</button><button class="btn primary">حفظ المسؤول</button></div></form></dialog>
 
   <dialog id="resetPasswordModal"><form id="resetPasswordForm" class="modal-form"><div class="modal-head"><h3>إعادة تعيين كلمة المرور</h3><button type="button" class="icon-btn" data-close aria-label="إغلاق">×</button></div><input type="hidden" name="admin_id" /><label>كلمة المرور الجديدة<input name="password" type="password" minlength="10" required autocomplete="new-password" /></label><div class="modal-actions"><button type="button" class="btn ghost" data-close>إلغاء</button><button class="btn primary">تغيير</button></div></form></dialog>

@@ -1,6 +1,6 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
-  "name": "lecturer-admin-cloudflare",
+  "name": "lecturer-admin",
   "main": "src/worker.js",
   "compatibility_date": "2026-08-19",
   "assets": {
@@ -12,11 +12,8 @@
     {
       "binding": "DB",
       "database_name": "lecturer-student-admin-db",
-      "database_id": "c9d42ff7-fa36-40dc-96db-ddcb146d8ee3",
+      "database_id": "REPLACE_WITH_D1_DATABASE_ID",
       "migrations_dir": "migrations"
     }
-  ],
-  "vars": {
-    "ADMIN_USERNAME": "admin"
-  }
+  ]
 }

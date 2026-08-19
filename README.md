@@ -1,96 +1,41 @@
-# Lecturer & Student Admin — Cloudflare (Production Upgrade)
+# Lecturer Admin Cloudflare v2.0
 
-Admin-only management platform for lecturers, students, monthly lecturer subscriptions, one-time student enrollment fees, payments, finance, and multi-admin permissions.
+منصة Admin/Owner لإدارة المحاضرين والطلاب والاشتراكات والمدفوعات على Cloudflare Workers + D1.
 
-## Stack
-- Cloudflare Workers
-- Workers Static Assets
-- Cloudflare D1
-- Vanilla HTML/CSS/JavaScript (no frontend build step)
+## أول تشغيل
 
-## Security / Admin model
-The first login bootstraps the first **Super Admin** from `ADMIN_USERNAME` + the `ADMIN_PASSWORD` secret **only when the `admins` table is empty**. After that, admin accounts are stored in D1 with PBKDF2 password hashing and database-backed sessions.
+بعد ربط D1 ونجاح الـDeploy افتح الموقع. إذا لم يوجد أي حساب إداري ستظهر شاشة **إنشاء حساب Owner** تلقائياً. لا تحتاج إلى `ADMIN_PASSWORD` أو `ADMIN_USERNAME` في Cloudflare.
 
-Roles included:
-- Super Admin
-- Manager
-- Finance Admin
-- Data Entry
-- Viewer
-- Custom permissions
+الـOwner هو أعلى صلاحية، ويمكنه بعد ذلك إنشاء Super Admin / Manager / Finance / Data Entry / Viewer / Custom من صفحة المسؤولين والصلاحيات.
 
-Only a **Super Admin** can create/edit admin accounts or reset another admin's password. Permissions are enforced on both the UI and API.
+## Cloudflare المطلوب
 
-## Fresh install
+- Worker name: `lecturer-admin`
+- D1 binding name: `DB`
+- D1 database: `lecturer-student-admin-db`
+- ضع UUID الحقيقي للقاعدة في `wrangler.jsonc` مكان `REPLACE_WITH_D1_DATABASE_ID`.
+
+## Deploy
+
 ```bash
 npm install
-npx wrangler login
-npx wrangler d1 create lecturer-student-admin-db
-```
-Copy the returned `database_id` into `wrangler.jsonc`, then:
-
-```bash
-npx wrangler d1 migrations apply lecturer-student-admin-db --remote
-npx wrangler secret put ADMIN_PASSWORD
-npm run deploy
+npx wrangler deploy
 ```
 
-`ADMIN_USERNAME` defaults to `admin` in `wrangler.jsonc`.
+أو اربط المشروع بـ GitHub Workers Builds بعد وضع Database ID الحقيقي في `wrangler.jsonc`.
 
-## Upgrade an existing v1.0 database
-Keep your existing D1 database ID and run:
+## Health Check
 
-```bash
-npx wrangler d1 migrations apply lecturer-student-admin-db --remote
-```
+`/api/system/health`
 
-This preserves existing lecturers, students, enrollments, subscriptions, payments, settings, and activity history and adds the admin/permission tables and indexes.
+يرجع `setup_required: true` إذا كان مطلوب إنشاء Owner.
 
-If the upgraded database has no rows in `admins`, the next successful login using the original environment admin credentials creates the first Super Admin automatically.
+## Security
 
-## Local development
-Create `.dev.vars` from `.dev.vars.example`, then:
-
-```bash
-npx wrangler d1 migrations apply lecturer-student-admin-db --local
-npm run dev
-```
-
-## Validation
-```bash
-npm test
-```
-
-## Main features
-- Multi-admin authentication and RBAC/permissions
-- Database-backed sessions + CSRF protection
-- Password hashing (PBKDF2)
+- Password hashing PBKDF2-SHA256
+- D1 server-side sessions
+- CSRF protection
+- Role/permission authorization on API
+- Login rate lockout
 - Security headers / CSP
-- Dashboard KPIs
-- Lecturers CRUD / suspend / archive
-- Monthly lecturer subscription renewal
-- Students CRUD / suspend / archive
-- Student ↔ Lecturer enrollment with duplicate prevention
-- One-time fee per active student/lecturer enrollment
-- Partial payments and payment history
-- Finance overview
-- Settings
-- Audited admin activity
-- Responsive RTL UI
-- Server-side validation and user-friendly errors
-
-## Important
-- Never commit `.dev.vars`, passwords, API tokens, or secrets.
-- Keep D1 migrations under version control and apply them before deploying code that depends on them.
-- Do not remove the last active Super Admin.
-
-
-## v1.2.0 — Automatic D1 Schema Bootstrap
-
-This version automatically creates/updates all required D1 tables, indexes, and default settings on the first API request. Manual migration execution is no longer required for a brand-new empty D1 database. The D1 database still must exist and be bound as `DB` with a valid `database_id` in Cloudflare.
-
-Health check after deployment: `/api/system/health`
-
-Required Cloudflare variables:
-- `ADMIN_USERNAME` (plain variable; default project value: `admin`)
-- `ADMIN_PASSWORD` (Secret)
+- Server-side validation

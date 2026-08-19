@@ -10,6 +10,7 @@ CREATE TABLE IF NOT EXISTS admins (
   permissions TEXT NOT NULL DEFAULT '[]',
   status TEXT NOT NULL DEFAULT 'active' CHECK(status IN ('active','suspended')),
   last_login_at TEXT,
+  is_owner INTEGER NOT NULL DEFAULT 0 CHECK(is_owner IN (0,1)),
   failed_login_count INTEGER NOT NULL DEFAULT 0,
   locked_until TEXT,
   created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,

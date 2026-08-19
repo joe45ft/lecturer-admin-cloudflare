@@ -1,11 +1,11 @@
 const $=s=>document.querySelector(s), $$=s=>[...document.querySelectorAll(s)];
 const state={auth:null,csrf:'',settings:{currency:'EGP'},lecturers:[],students:[],enrollments:[],payments:[],admins:[],adminMeta:null,dashboard:null};
 const PAGE_INFO={dashboard:['الرئيسية','نظرة عامة على المنصة'],lecturers:['المحاضرون','إدارة المحاضرين والاشتراكات'],students:['الطلاب','إدارة بيانات الطلاب'],enrollments:['التسجيلات','ربط الطلاب بالمحاضرين'],payments:['المدفوعات','كل الحركات المالية'],finance:['المالية','ملخص الإيرادات'],admins:['المسؤولون والصلاحيات','إدارة حسابات الإدارة والتحكم في الوصول'],activity:['سجل النشاط','تتبع العمليات الإدارية'],settings:['الإعدادات','إعدادات المنصة والأسعار الافتراضية']};
-const ROLE_NAMES={super_admin:'Super Admin',manager:'Manager',finance:'Finance Admin',data_entry:'Data Entry',viewer:'Viewer',custom:'Custom'};
+const ROLE_NAMES={owner:'Owner',super_admin:'Super Admin',manager:'Manager',finance:'Finance Admin',data_entry:'Data Entry',viewer:'Viewer',custom:'Custom'};
 const PERM_NAMES={'dashboard.view':'عرض الرئيسية','lecturers.view':'عرض المحاضرين','lecturers.create':'إضافة محاضر','lecturers.edit':'تعديل محاضر','lecturers.archive':'أرشفة محاضر','subscriptions.renew':'تجديد اشتراك','students.view':'عرض الطلاب','students.create':'إضافة طالب','students.edit':'تعديل طالب','students.archive':'أرشفة طالب','enrollments.view':'عرض التسجيلات','enrollments.create':'إضافة تسجيل','enrollments.cancel':'إلغاء تسجيل','payments.view':'عرض المدفوعات','payments.create':'تسجيل دفعات','finance.view':'عرض المالية','settings.view':'عرض الإعدادات','settings.manage':'تعديل الإعدادات','activity.view':'عرض سجل النشاط','admins.view':'عرض المسؤولين','admins.manage':'إدارة المسؤولين'};
 
 function esc(v){return String(v??'').replace(/[&<>'"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]));}
-function has(permission){if(permission==='admins.manage')return state.auth?.role==='super_admin';return !!state.auth?.permissions?.includes(permission);}
+function has(permission){if(permission==='admins.manage')return state.auth?.role==='owner';return state.auth?.role==='owner'||!!state.auth?.permissions?.includes(permission);}
 function money(v){return `${new Intl.NumberFormat('ar-EG',{maximumFractionDigits:2}).format(Number(v||0))} ${esc(state.settings.currency||'EGP')}`;}
 function dateText(v){if(!v)return '-'; const d=new Date(v); return Number.isNaN(d.getTime())?esc(v):new Intl.DateTimeFormat('ar-EG',{dateStyle:'medium'}).format(d);}
 function statusBadge(v){const map={active:['نشط','green'],paid:['مدفوع','green'],due_soon:['ينتهي قريبًا','orange'],partial:['جزئي','orange'],unpaid:['غير مدفوع','red'],expired:['منتهي','red'],suspended:['موقوف','gray'],archived:['مؤرشف','gray']};const [t,c]=map[v]||[v||'-','gray'];return `<span class="badge ${c}">${esc(t)}</span>`;}
@@ -15,8 +15,10 @@ function setBusy(form,busy){const btn=form.querySelector('button[type="submit"],
 async function api(path,options={}){const headers={'content-type':'application/json',...(options.headers||{})};if(!['GET','HEAD'].includes((options.method||'GET').toUpperCase())&&state.csrf)headers['x-csrf-token']=state.csrf;const res=await fetch(path,{credentials:'same-origin',...options,headers});let data={};try{data=await res.json();}catch{}if(res.status===401){showLogin();throw new Error(data.message||'يجب تسجيل الدخول.');}if(!res.ok)throw new Error(data.message||'تعذر إتمام العملية.');return data;}
 function openModal(id){const d=$('#'+id);if(d&&!d.open)d.showModal();}
 function closeDialog(el){el.closest('dialog')?.close();}
-function showLogin(){$('#loginView').classList.remove('hidden');$('#appView').classList.add('hidden');state.auth=null;state.csrf='';}
-function showApp(){$('#loginView').classList.add('hidden');$('#appView').classList.remove('hidden');}
+function hideAuthViews(){$('#setupView').classList.add('hidden');$('#loginView').classList.add('hidden');$('#appView').classList.add('hidden');}
+function showSetup(){hideAuthViews();$('#setupView').classList.remove('hidden');state.auth=null;state.csrf='';}
+function showLogin(){hideAuthViews();$('#loginView').classList.remove('hidden');state.auth=null;state.csrf='';}
+function showApp(){hideAuthViews();$('#appView').classList.remove('hidden');}
 function applyPermissions(){
   $$('[data-permission]').forEach(el=>{el.hidden=!has(el.dataset.permission);});
   $('#adminIdentity').textContent=`${state.auth.full_name} · ${ROLE_NAMES[state.auth.role]||state.auth.role}`;
@@ -24,7 +26,7 @@ function applyPermissions(){
 }
 function navigate(page){const btn=$(`#nav [data-page="${page}"]`);if(!btn||btn.hidden)return;$$('#nav [data-page]').forEach(x=>x.classList.toggle('active',x===btn));$$('.page').forEach(x=>x.classList.toggle('active',x.id===page));$('#pageTitle').textContent=PAGE_INFO[page][0];$('#pageSubtitle').textContent=PAGE_INFO[page][1];$('#sidebar').classList.remove('open');}
 
-async function boot(){try{const me=await api('/api/auth/me');state.auth=me.admin;state.csrf=me.csrf_token;showApp();applyPermissions();await loadAll();}catch{showLogin();}}
+async function boot(){try{const setup=await api('/api/setup/status');if(setup.setup_required){showSetup();return;}try{const me=await api('/api/auth/me');state.auth=me.admin;state.csrf=me.csrf_token;showApp();applyPermissions();await loadAll();}catch{showLogin();}}catch(err){showLogin();$('#loginError').textContent=err.message||'تعذر الاتصال بالنظام.';}}
 async function loadAll(){await loadSettings();const jobs=[loadDashboard()];if(has('lecturers.view'))jobs.push(loadLecturers());if(has('students.view'))jobs.push(loadStudents());if(has('enrollments.view'))jobs.push(loadEnrollments());if(has('payments.view'))jobs.push(loadPayments());if(has('activity.view'))jobs.push(loadActivity());if(has('admins.view'))jobs.push(loadAdmins());await Promise.allSettled(jobs);}
 async function loadSettings(){if(!has('settings.view'))return;const r=await api('/api/settings');state.settings=r.settings;$('#brandName').textContent=state.settings.platform_name||'Lecturer Manager';document.title=state.settings.platform_name||'Lecturer Manager';const f=$('#settingsForm');Object.entries(state.settings).forEach(([k,v])=>{if(f.elements[k])f.elements[k].value=v;});}
 async function loadDashboard(){if(!has('dashboard.view'))return;const r=await api('/api/dashboard');state.dashboard=r;renderDashboard();}
@@ -46,6 +48,7 @@ function populateSelects(){const sf=$('#enrollmentForm [name=student_id]'),lf=$(
 function renderPermissionCheckboxes(){if(!state.adminMeta)return;$('#permissionsGrid').innerHTML=state.adminMeta.permissions.map(p=>`<label class="perm-item"><input type="checkbox" name="permissions" value="${esc(p)}" /><span>${esc(PERM_NAMES[p]||p)}</span></label>`).join('');}
 function syncRolePermissions(role){if(!state.adminMeta)return;const preset=state.adminMeta.role_presets[role]||[];$$('#permissionsGrid input').forEach(c=>{c.checked=preset.includes(c.value);c.disabled=role!=='custom';});}
 
+$('#setupForm').addEventListener('submit',async e=>{e.preventDefault();const d=formData(e.target);$('#setupError').textContent='';if(d.password!==d.password_confirm){$('#setupError').textContent='كلمتا المرور غير متطابقتين.';return;}delete d.password_confirm;setBusy(e.target,true);try{const r=await api('/api/setup/owner',{method:'POST',body:JSON.stringify(d)});state.auth=r.admin;state.csrf=r.csrf_token;showApp();applyPermissions();await loadAll();toast('تم إنشاء حساب الـOwner بنجاح.');}catch(err){if(err.message.includes('بالفعل')){showLogin();$('#loginError').textContent='تم إنشاء حساب الـOwner بالفعل. سجّل الدخول.';}else{$('#setupError').textContent=err.message;}}finally{setBusy(e.target,false);}});
 $('#loginForm').addEventListener('submit',async e=>{e.preventDefault();setBusy(e.target,true);$('#loginError').textContent='';try{const r=await api('/api/auth/login',{method:'POST',body:JSON.stringify(formData(e.target))});state.auth=r.admin;state.csrf=r.csrf_token;showApp();applyPermissions();await loadAll();}catch(err){$('#loginError').textContent=err.message;}finally{setBusy(e.target,false);}});
 $('#logoutBtn').onclick=async()=>{try{await api('/api/auth/logout',{method:'POST',body:'{}'});}catch{}showLogin();};
 $('#changePasswordBtn').onclick=()=>{$('#changePasswordForm').reset();openModal('changePasswordModal');};
