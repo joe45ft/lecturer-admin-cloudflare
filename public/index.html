@@ -1,0 +1,139 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <meta name="robots" content="noindex,nofollow,noarchive" />
+  <meta name="color-scheme" content="light" />
+  <title>Lecturer Manager</title>
+  <link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+
+  <section id="loginView" class="login-shell" aria-labelledby="loginTitle">
+    <form id="loginForm" class="login-card" autocomplete="on">
+      <div class="brand-mark" aria-hidden="true">LM</div>
+      <h1 id="loginTitle">Lecturer Manager</h1>
+      <p>لوحة إدارة المحاضرين والطلاب</p>
+      <label for="loginUsername">اسم المستخدم</label>
+      <input id="loginUsername" name="username" value="admin" autocomplete="username" required maxlength="80" />
+      <label for="loginPassword">كلمة المرور</label>
+      <input id="loginPassword" name="password" type="password" autocomplete="current-password" required />
+      <button class="btn primary" type="submit">تسجيل الدخول</button>
+      <small id="loginError" class="error" role="alert"></small>
+    </form>
+  </section>
+
+  <div id="appView" class="app hidden">
+    <aside class="sidebar" id="sidebar">
+      <div class="brand"><span class="brand-mark small" aria-hidden="true">LM</span><div><strong id="brandName">Lecturer Manager</strong><small id="adminIdentity">Admin</small></div></div>
+      <nav id="nav" aria-label="القائمة الرئيسية">
+        <button data-page="dashboard" data-permission="dashboard.view" class="active">الرئيسية</button>
+        <button data-page="lecturers" data-permission="lecturers.view">المحاضرون</button>
+        <button data-page="students" data-permission="students.view">الطلاب</button>
+        <button data-page="enrollments" data-permission="enrollments.view">التسجيلات</button>
+        <button data-page="payments" data-permission="payments.view">المدفوعات</button>
+        <button data-page="finance" data-permission="finance.view">المالية</button>
+        <button data-page="admins" data-permission="admins.view">المسؤولون والصلاحيات</button>
+        <button data-page="activity" data-permission="activity.view">سجل النشاط</button>
+        <button data-page="settings" data-permission="settings.view">الإعدادات</button>
+      </nav>
+      <div class="sidebar-bottom">
+        <button id="changePasswordBtn" class="btn ghost">تغيير كلمة المرور</button>
+        <button id="logoutBtn" class="btn ghost danger">تسجيل الخروج</button>
+      </div>
+    </aside>
+
+    <main class="main">
+      <header class="topbar">
+        <div class="title-row"><button id="menuBtn" class="icon-btn mobile-only" aria-label="فتح القائمة" aria-controls="sidebar">☰</button><div><h2 id="pageTitle">الرئيسية</h2><p id="pageSubtitle">نظرة عامة على المنصة</p></div></div>
+        <div class="quick-actions">
+          <button class="btn" data-open="lecturerModal" data-permission="lecturers.create">+ محاضر</button>
+          <button class="btn" data-open="studentModal" data-permission="students.create">+ طالب</button>
+          <button class="btn primary" data-open="enrollmentModal" data-permission="enrollments.create">+ تسجيل طالب</button>
+        </div>
+      </header>
+
+      <section id="dashboard" class="page active" aria-labelledby="pageTitle">
+        <div id="stats" class="stats"></div>
+        <div class="grid-2">
+          <div class="panel"><div class="panel-head"><h3>آخر المدفوعات</h3></div><div id="recentPayments"></div></div>
+          <div class="panel"><div class="panel-head"><h3>تنبيهات</h3></div><div id="alerts"></div></div>
+        </div>
+      </section>
+
+      <section id="lecturers" class="page">
+        <div class="panel"><div class="panel-head"><h3>المحاضرون</h3><input id="lecturerSearch" aria-label="بحث في المحاضرين" placeholder="بحث بالاسم أو الهاتف أو المادة" /></div><div class="table-wrap"><table><thead><tr><th>المحاضر</th><th>المادة</th><th>الهاتف</th><th>الطلاب</th><th>اشتراك شهري</th><th>رسوم الطالب</th><th>انتهاء الاشتراك</th><th>الحالة</th><th>إجراءات</th></tr></thead><tbody id="lecturersBody"></tbody></table></div></div>
+      </section>
+
+      <section id="students" class="page">
+        <div class="panel"><div class="panel-head"><h3>الطلاب</h3><input id="studentSearch" aria-label="بحث في الطلاب" placeholder="بحث بالاسم أو الكود أو الهاتف" /></div><div class="table-wrap"><table><thead><tr><th>الكود</th><th>الطالب</th><th>الهاتف</th><th>ولي الأمر</th><th>المحاضرون</th><th>المطلوب</th><th>المدفوع</th><th>المتبقي</th><th>إجراءات</th></tr></thead><tbody id="studentsBody"></tbody></table></div></div>
+      </section>
+
+      <section id="enrollments" class="page">
+        <div class="panel"><div class="panel-head"><h3>تسجيلات الطلاب مع المحاضرين</h3><input id="enrollmentSearch" aria-label="بحث في التسجيلات" placeholder="بحث بالطالب أو المحاضر" /></div><div class="table-wrap"><table><thead><tr><th>الطالب</th><th>المحاضر</th><th>المادة</th><th>التاريخ</th><th>المطلوب</th><th>المدفوع</th><th>المتبقي</th><th>الحالة</th><th>إجراءات</th></tr></thead><tbody id="enrollmentsBody"></tbody></table></div></div>
+      </section>
+
+      <section id="payments" class="page">
+        <div class="panel"><div class="panel-head"><h3>سجل المدفوعات</h3><input id="paymentSearch" aria-label="بحث في المدفوعات" placeholder="بحث بالاسم أو رقم الإيصال" /></div><div class="table-wrap"><table><thead><tr><th>الإيصال</th><th>النوع</th><th>الاسم</th><th>المبلغ</th><th>الطريقة</th><th>التاريخ</th></tr></thead><tbody id="paymentsBody"></tbody></table></div></div>
+      </section>
+
+      <section id="finance" class="page">
+        <div id="financeCards" class="stats"></div>
+        <div class="panel"><div class="panel-head"><h3>ملخص مالي</h3></div><div class="empty-note">الإيرادات محسوبة من المدفوعات المسجلة فعليًا، وليس من الرسوم المطلوبة.</div></div>
+      </section>
+
+      <section id="admins" class="page">
+        <div class="panel"><div class="panel-head"><div><h3>المسؤولون والصلاحيات</h3><p class="muted">الصلاحيات يتم تطبيقها في الواجهة والـAPI معاً.</p></div><button class="btn primary" id="addAdminBtn" data-permission="admins.manage">+ إضافة مسؤول</button></div><div class="table-wrap"><table><thead><tr><th>الاسم</th><th>اسم المستخدم</th><th>الدور</th><th>الحالة</th><th>آخر دخول</th><th>إجراءات</th></tr></thead><tbody id="adminsBody"></tbody></table></div></div>
+      </section>
+
+      <section id="activity" class="page">
+        <div class="panel"><div class="panel-head"><h3>سجل النشاط</h3></div><div class="table-wrap"><table><thead><tr><th>المسؤول</th><th>العملية</th><th>النوع</th><th>التفاصيل</th><th>التاريخ</th></tr></thead><tbody id="activityBody"></tbody></table></div></div>
+      </section>
+
+      <section id="settings" class="page">
+        <form id="settingsForm" class="panel form-grid">
+          <div class="panel-head full"><h3>الإعدادات</h3></div>
+          <label>اسم المنصة<input name="platform_name" maxlength="100" /></label>
+          <label>العملة<input name="currency" maxlength="12" /></label>
+          <label>الاشتراك الشهري الافتراضي<input name="default_monthly_fee" type="number" min="0" step="0.01" /></label>
+          <label>رسوم الطالب الافتراضية<input name="default_student_fee" type="number" min="0" step="0.01" /></label>
+          <label>أيام التنبيه قبل انتهاء الاشتراك<input name="subscription_warning_days" type="number" min="1" max="60" /></label>
+          <div class="full"><button class="btn primary" data-permission="settings.manage">حفظ الإعدادات</button></div>
+        </form>
+      </section>
+    </main>
+  </div>
+
+  <dialog id="lecturerModal"><form id="lecturerForm" class="modal-form"><div class="modal-head"><h3>بيانات المحاضر</h3><button type="button" class="icon-btn" data-close aria-label="إغلاق">×</button></div><input type="hidden" name="id" />
+    <div class="form-grid"><label>اسم المحاضر<input name="full_name" required maxlength="160" /></label><label>الهاتف<input name="phone" maxlength="40" /></label><label>البريد<input name="email" type="email" maxlength="180" /></label><label>المادة<input name="subject" maxlength="120" /></label><label>الاشتراك الشهري<input name="monthly_fee" type="number" min="0" step="0.01" /></label><label>رسوم تسجيل الطالب<input name="student_enrollment_fee" type="number" min="0" step="0.01" /></label><label>الحالة<select name="status"><option value="active">نشط</option><option value="suspended">موقوف</option></select></label><label class="full">ملاحظات<textarea name="notes" maxlength="1000"></textarea></label></div>
+    <div class="modal-actions"><button type="button" class="btn ghost" data-close>إلغاء</button><button class="btn primary">حفظ</button></div></form></dialog>
+
+  <dialog id="studentModal"><form id="studentForm" class="modal-form"><div class="modal-head"><h3>بيانات الطالب</h3><button type="button" class="icon-btn" data-close aria-label="إغلاق">×</button></div><input type="hidden" name="id" />
+    <div class="form-grid"><label>اسم الطالب<input name="full_name" required maxlength="160" /></label><label>الهاتف<input name="phone" maxlength="40" /></label><label>هاتف ولي الأمر<input name="parent_phone" maxlength="40" /></label><label>البريد<input name="email" type="email" maxlength="180" /></label><label>الحالة<select name="status"><option value="active">نشط</option><option value="suspended">موقوف</option></select></label><label class="full">ملاحظات<textarea name="notes" maxlength="1000"></textarea></label></div>
+    <div class="modal-actions"><button type="button" class="btn ghost" data-close>إلغاء</button><button class="btn primary">حفظ</button></div></form></dialog>
+
+  <dialog id="enrollmentModal"><form id="enrollmentForm" class="modal-form"><div class="modal-head"><h3>تسجيل طالب مع محاضر</h3><button type="button" class="icon-btn" data-close aria-label="إغلاق">×</button></div>
+    <div class="form-grid"><label>الطالب<select name="student_id" required></select></label><label>المحاضر<select name="lecturer_id" required></select></label><label>الرسوم المطلوبة<input name="required_fee" type="number" min="0" step="0.01" /></label><label>المدفوع الآن<input name="paid_amount" type="number" min="0" step="0.01" value="0" /></label><label>طريقة الدفع<select name="payment_method"><option>Cash</option><option>InstaPay</option><option>Vodafone Cash</option><option>Bank Transfer</option><option>Card</option><option>Other</option></select></label><label>التاريخ<input name="enrollment_date" type="date" /></label><label class="full">ملاحظات<textarea name="notes" maxlength="1000"></textarea></label></div>
+    <div class="modal-actions"><button type="button" class="btn ghost" data-close>إلغاء</button><button class="btn primary">تسجيل</button></div></form></dialog>
+
+  <dialog id="renewModal"><form id="renewForm" class="modal-form"><div class="modal-head"><h3>تجديد اشتراك المحاضر</h3><button type="button" class="icon-btn" data-close aria-label="إغلاق">×</button></div><input type="hidden" name="lecturer_id" />
+    <div class="form-grid"><label>عدد الشهور<input name="months" type="number" min="1" max="60" value="1" required /></label><label>المبلغ المطلوب<input name="required_amount" type="number" min="0" step="0.01" required /></label><label>المبلغ المدفوع<input name="paid_amount" type="number" min="0" step="0.01" required /></label><label>طريقة الدفع<select name="payment_method"><option>Cash</option><option>InstaPay</option><option>Vodafone Cash</option><option>Bank Transfer</option><option>Card</option><option>Other</option></select></label><label class="full">ملاحظات<textarea name="notes" maxlength="1000"></textarea></label></div>
+    <div class="modal-actions"><button type="button" class="btn ghost" data-close>إلغاء</button><button class="btn primary">تجديد</button></div></form></dialog>
+
+  <dialog id="paymentModal"><form id="paymentForm" class="modal-form"><div class="modal-head"><h3>تسجيل دفعة طالب</h3><button type="button" class="icon-btn" data-close aria-label="إغلاق">×</button></div><input type="hidden" name="enrollment_id" />
+    <div class="form-grid"><label>المبلغ<input name="amount" type="number" min="0.01" step="0.01" required /></label><label>طريقة الدفع<select name="payment_method"><option>Cash</option><option>InstaPay</option><option>Vodafone Cash</option><option>Bank Transfer</option><option>Card</option><option>Other</option></select></label><label class="full">مرجع العملية<input name="reference" maxlength="160" /></label><label class="full">ملاحظات<textarea name="notes" maxlength="1000"></textarea></label></div>
+    <div class="modal-actions"><button type="button" class="btn ghost" data-close>إلغاء</button><button class="btn primary">حفظ الدفعة</button></div></form></dialog>
+
+  <dialog id="adminModal"><form id="adminForm" class="modal-form wide"><div class="modal-head"><h3>حساب المسؤول</h3><button type="button" class="icon-btn" data-close aria-label="إغلاق">×</button></div><input type="hidden" name="id" />
+    <div class="form-grid"><label>الاسم الكامل<input name="full_name" required maxlength="160" /></label><label>اسم المستخدم<input name="username" required minlength="3" maxlength="80" pattern="[A-Za-z0-9._-]+" dir="ltr" /></label><label>الدور<select name="role"><option value="super_admin">Super Admin</option><option value="manager">Manager</option><option value="finance">Finance Admin</option><option value="data_entry">Data Entry</option><option value="viewer">Viewer</option><option value="custom">Custom</option></select></label><label>الحالة<select name="status"><option value="active">نشط</option><option value="suspended">موقوف</option></select></label><label id="adminPasswordField" class="full">كلمة المرور<input name="password" type="password" minlength="10" autocomplete="new-password" /></label><fieldset class="full permissions-box"><legend>الصلاحيات</legend><div id="permissionsGrid" class="permissions-grid"></div></fieldset></div>
+    <div class="modal-actions"><button type="button" class="btn ghost" data-close>إلغاء</button><button class="btn primary">حفظ المسؤول</button></div></form></dialog>
+
+  <dialog id="resetPasswordModal"><form id="resetPasswordForm" class="modal-form"><div class="modal-head"><h3>إعادة تعيين كلمة المرور</h3><button type="button" class="icon-btn" data-close aria-label="إغلاق">×</button></div><input type="hidden" name="admin_id" /><label>كلمة المرور الجديدة<input name="password" type="password" minlength="10" required autocomplete="new-password" /></label><div class="modal-actions"><button type="button" class="btn ghost" data-close>إلغاء</button><button class="btn primary">تغيير</button></div></form></dialog>
+
+  <dialog id="changePasswordModal"><form id="changePasswordForm" class="modal-form"><div class="modal-head"><h3>تغيير كلمة المرور</h3><button type="button" class="icon-btn" data-close aria-label="إغلاق">×</button></div><label>كلمة المرور الحالية<input name="current_password" type="password" required autocomplete="current-password" /></label><label>كلمة المرور الجديدة<input name="new_password" type="password" minlength="10" required autocomplete="new-password" /></label><div class="modal-actions"><button type="button" class="btn ghost" data-close>إلغاء</button><button class="btn primary">تغيير</button></div></form></dialog>
+
+  <script src="/app.js"></script>
+</body>
+</html>
