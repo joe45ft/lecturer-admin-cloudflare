@@ -24,7 +24,7 @@ const json = (data, status = 200, headers = {}) => new Response(JSON.stringify(d
   status,
   headers: { 'content-type': 'application/json; charset=utf-8', 'cache-control':'no-store', ...headers },
 });
-const bad = (message, status = 400, code = 'BAD_REQUEST') => json({ ok:false, code, message }, status);
+const bad = (message, status = 400, code = 'BAD_REQUEST', extra = {}) => json({ ok:false, code, message, ...extra }, status);
 const ok = (data = {}, status = 200, headers = {}) => json({ ok:true, ...data }, status, headers);
 
 function cookie(name, value, maxAge = SESSION_SECONDS) {
@@ -62,8 +62,8 @@ async function readBody(request) {
 }
 function num(v, fallback=0) { const n=Number(v); return Number.isFinite(n)?n:fallback; }
 function text(v,max=500){ return String(v??'').trim().slice(0,max); }
-function normalizeUsername(v){ return String(v??'').normalize('NFKC').replace(/[\u200B-\u200D\uFEFF]/g,'').trim(); }
-function validUsername(v){ const u=normalizeUsername(v); return u.length>=3 && u.length<=80 && /^[\p{L}\p{N}._-]+$/u.test(u); }
+function normalizeUsername(v){ return String(v??'').normalize('NFKC').replace(/[\u200B-\u200D\uFEFF]/g,'').replace(/\s+/g,' ').trim(); }
+function validUsername(v){ const u=normalizeUsername(v); return u.length>=3 && u.length<=80 && !/[\u0000-\u001F\u007F]/.test(u); }
 function validEmail(v){ return !v || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v); }
 function today(){ return new Date().toISOString().slice(0,10); }
 function addMonths(dateString, months){ const d=new Date(`${dateString}T00:00:00Z`); d.setUTCMonth(d.getUTCMonth()+Number(months)); return d.toISOString().slice(0,10); }
@@ -127,48 +127,104 @@ function studentPayload(d){
 
 let schemaReady = false;
 let schemaInitPromise = null;
+let schemaStatus = { ready:false, stage:'not_started', detail:'' };
+
+function safeDbDetail(value){
+  return String(value || 'Unknown D1 error')
+    .replace(/[\r\n\t]+/g,' ')
+    .replace(/\s+/g,' ')
+    .slice(0,320);
+}
+
+async function schemaStep(env, stage, sql){
+  schemaStatus = { ready:false, stage, detail:'' };
+  try {
+    return await env.DB.prepare(sql).run();
+  } catch (err) {
+    const detail = safeDbDetail(err?.message || err);
+    schemaStatus = { ready:false, stage, detail };
+    const wrapped = new Error(detail);
+    wrapped.code = 'DB_SCHEMA_INIT_FAILED';
+    wrapped.stage = stage;
+    wrapped.dbDetail = detail;
+    throw wrapped;
+  }
+}
+
+async function tableColumns(env, table){
+  try {
+    const {results=[]} = await env.DB.prepare(`PRAGMA table_info(${table})`).all();
+    return new Set(results.map(row => row.name));
+  } catch (err) {
+    const detail = safeDbDetail(err?.message || err);
+    const wrapped = new Error(detail);
+    wrapped.code = 'DB_SCHEMA_INIT_FAILED';
+    wrapped.stage = `inspect_${table}`;
+    wrapped.dbDetail = detail;
+    throw wrapped;
+  }
+}
+
+async function addColumnIfMissing(env, table, columns, name, definition){
+  if (columns.has(name)) return;
+  await schemaStep(env, `upgrade_${table}_${name}`, `ALTER TABLE ${table} ADD COLUMN ${name} ${definition}`);
+  columns.add(name);
+}
 
 async function ensureDatabaseSchema(env){
   if (schemaReady) return;
   if (!env?.DB || typeof env.DB.prepare !== 'function') {
     const err = new Error('D1 binding DB is not configured.');
     err.code = 'DB_NOT_CONFIGURED';
+    err.stage = 'binding';
     throw err;
   }
   if (schemaInitPromise) return schemaInitPromise;
 
   schemaInitPromise = (async () => {
-    const statements = [
-      `CREATE TABLE IF NOT EXISTS lecturers (
+    schemaStatus = { ready:false, stage:'connection_test', detail:'' };
+    try {
+      await env.DB.prepare('SELECT 1 AS ok').first();
+    } catch (err) {
+      const detail=safeDbDetail(err?.message||err);
+      const wrapped=new Error(detail);
+      wrapped.code='DB_CONNECTION_FAILED';
+      wrapped.stage='connection_test';
+      wrapped.dbDetail=detail;
+      throw wrapped;
+    }
+
+    const steps = [
+      ['create_lecturers', `CREATE TABLE IF NOT EXISTS lecturers (
         id INTEGER PRIMARY KEY AUTOINCREMENT, full_name TEXT NOT NULL, phone TEXT, email TEXT, subject TEXT,
         address TEXT, notes TEXT, monthly_fee REAL NOT NULL DEFAULT 0, student_enrollment_fee REAL NOT NULL DEFAULT 0,
         subscription_start_date TEXT, subscription_end_date TEXT,
         status TEXT NOT NULL DEFAULT 'active' CHECK(status IN ('active','suspended','archived')),
         created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-      )`,
-      `CREATE TABLE IF NOT EXISTS students (
+      )`],
+      ['create_students', `CREATE TABLE IF NOT EXISTS students (
         id INTEGER PRIMARY KEY AUTOINCREMENT, student_code TEXT UNIQUE, full_name TEXT NOT NULL, phone TEXT,
         parent_phone TEXT, email TEXT, date_of_birth TEXT, gender TEXT, address TEXT, notes TEXT,
         status TEXT NOT NULL DEFAULT 'active' CHECK(status IN ('active','suspended','archived')),
         created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-      )`,
-      `CREATE TABLE IF NOT EXISTS enrollments (
+      )`],
+      ['create_enrollments', `CREATE TABLE IF NOT EXISTS enrollments (
         id INTEGER PRIMARY KEY AUTOINCREMENT, student_id INTEGER NOT NULL, lecturer_id INTEGER NOT NULL,
         subject TEXT, enrollment_date TEXT NOT NULL DEFAULT (date('now')), original_fee REAL NOT NULL DEFAULT 0,
         required_fee REAL NOT NULL DEFAULT 0, status TEXT NOT NULL DEFAULT 'active' CHECK(status IN ('active','cancelled')),
         notes TEXT, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY(student_id) REFERENCES students(id) ON DELETE RESTRICT,
         FOREIGN KEY(lecturer_id) REFERENCES lecturers(id) ON DELETE RESTRICT
-      )`,
-      `CREATE UNIQUE INDEX IF NOT EXISTS idx_active_student_lecturer ON enrollments(student_id, lecturer_id) WHERE status='active'`,
-      `CREATE TABLE IF NOT EXISTS lecturer_subscriptions (
+      )`],
+      ['index_active_enrollment', `CREATE UNIQUE INDEX IF NOT EXISTS idx_active_student_lecturer ON enrollments(student_id, lecturer_id) WHERE status='active'`],
+      ['create_subscriptions', `CREATE TABLE IF NOT EXISTS lecturer_subscriptions (
         id INTEGER PRIMARY KEY AUTOINCREMENT, lecturer_id INTEGER NOT NULL, start_date TEXT NOT NULL, end_date TEXT NOT NULL,
         months INTEGER NOT NULL DEFAULT 1, required_amount REAL NOT NULL DEFAULT 0, paid_amount REAL NOT NULL DEFAULT 0,
         status TEXT NOT NULL DEFAULT 'unpaid' CHECK(status IN ('unpaid','partial','paid','cancelled')), notes TEXT,
         created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY(lecturer_id) REFERENCES lecturers(id) ON DELETE RESTRICT
-      )`,
-      `CREATE TABLE IF NOT EXISTS payments (
+      )`],
+      ['create_payments', `CREATE TABLE IF NOT EXISTS payments (
         id INTEGER PRIMARY KEY AUTOINCREMENT, receipt_no TEXT UNIQUE NOT NULL,
         payment_type TEXT NOT NULL CHECK(payment_type IN ('lecturer_subscription','student_enrollment')),
         lecturer_id INTEGER, student_id INTEGER, enrollment_id INTEGER, subscription_id INTEGER,
@@ -178,65 +234,82 @@ async function ensureDatabaseSchema(env){
         FOREIGN KEY(student_id) REFERENCES students(id) ON DELETE RESTRICT,
         FOREIGN KEY(enrollment_id) REFERENCES enrollments(id) ON DELETE RESTRICT,
         FOREIGN KEY(subscription_id) REFERENCES lecturer_subscriptions(id) ON DELETE RESTRICT
-      )`,
-      `CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)`,
-      `CREATE TABLE IF NOT EXISTS activity_logs (
+      )`],
+      ['create_settings', `CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)`],
+      ['create_activity_logs', `CREATE TABLE IF NOT EXISTS activity_logs (
         id INTEGER PRIMARY KEY AUTOINCREMENT, action TEXT NOT NULL, entity_type TEXT, entity_id INTEGER, details TEXT,
         created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, admin_id INTEGER, admin_name TEXT
-      )`,
-      `CREATE TABLE IF NOT EXISTS admins (
+      )`],
+      ['create_admins', `CREATE TABLE IF NOT EXISTS admins (
         id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT NOT NULL UNIQUE COLLATE NOCASE, full_name TEXT NOT NULL,
         password_salt TEXT NOT NULL, password_hash TEXT NOT NULL,
         role TEXT NOT NULL DEFAULT 'viewer' CHECK(role IN ('super_admin','manager','finance','data_entry','viewer','custom')),
         permissions TEXT NOT NULL DEFAULT '[]', status TEXT NOT NULL DEFAULT 'active' CHECK(status IN ('active','suspended')),
-        last_login_at TEXT, failed_login_count INTEGER NOT NULL DEFAULT 0, locked_until TEXT, is_owner INTEGER NOT NULL DEFAULT 0 CHECK(is_owner IN (0,1)),
+        last_login_at TEXT, failed_login_count INTEGER NOT NULL DEFAULT 0, locked_until TEXT,
+        is_owner INTEGER NOT NULL DEFAULT 0 CHECK(is_owner IN (0,1)),
         created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-      )`,
-      `CREATE TABLE IF NOT EXISTS admin_sessions (
+      )`],
+      ['create_admin_sessions', `CREATE TABLE IF NOT EXISTS admin_sessions (
         id INTEGER PRIMARY KEY AUTOINCREMENT, admin_id INTEGER NOT NULL, token_hash TEXT NOT NULL UNIQUE,
         csrf_token TEXT NOT NULL, expires_at TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
         last_seen_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY(admin_id) REFERENCES admins(id) ON DELETE CASCADE
-      )`,
-      `CREATE INDEX IF NOT EXISTS idx_admin_sessions_admin ON admin_sessions(admin_id)`,
-      `CREATE INDEX IF NOT EXISTS idx_admin_sessions_expires ON admin_sessions(expires_at)`,
-      `CREATE INDEX IF NOT EXISTS idx_lecturers_phone ON lecturers(phone)`,
-      `CREATE INDEX IF NOT EXISTS idx_lecturers_status ON lecturers(status)`,
-      `CREATE INDEX IF NOT EXISTS idx_students_phone ON students(phone)`,
-      `CREATE INDEX IF NOT EXISTS idx_students_parent_phone ON students(parent_phone)`,
-      `CREATE INDEX IF NOT EXISTS idx_students_status ON students(status)`,
-      `CREATE INDEX IF NOT EXISTS idx_enrollments_student ON enrollments(student_id)`,
-      `CREATE INDEX IF NOT EXISTS idx_enrollments_lecturer ON enrollments(lecturer_id)`,
-      `CREATE INDEX IF NOT EXISTS idx_payments_enrollment ON payments(enrollment_id)`,
-      `CREATE INDEX IF NOT EXISTS idx_payments_subscription ON payments(subscription_id)`,
-      `CREATE INDEX IF NOT EXISTS idx_payments_lecturer ON payments(lecturer_id)`,
-      `CREATE INDEX IF NOT EXISTS idx_payments_student ON payments(student_id)`,
-      `CREATE INDEX IF NOT EXISTS idx_payments_date ON payments(payment_date)`
+      )`],
+      ['idx_admin_sessions_admin', `CREATE INDEX IF NOT EXISTS idx_admin_sessions_admin ON admin_sessions(admin_id)`],
+      ['idx_admin_sessions_expires', `CREATE INDEX IF NOT EXISTS idx_admin_sessions_expires ON admin_sessions(expires_at)`],
+      ['idx_lecturers_phone', `CREATE INDEX IF NOT EXISTS idx_lecturers_phone ON lecturers(phone)`],
+      ['idx_lecturers_status', `CREATE INDEX IF NOT EXISTS idx_lecturers_status ON lecturers(status)`],
+      ['idx_students_phone', `CREATE INDEX IF NOT EXISTS idx_students_phone ON students(phone)`],
+      ['idx_students_parent_phone', `CREATE INDEX IF NOT EXISTS idx_students_parent_phone ON students(parent_phone)`],
+      ['idx_students_status', `CREATE INDEX IF NOT EXISTS idx_students_status ON students(status)`],
+      ['idx_enrollments_student', `CREATE INDEX IF NOT EXISTS idx_enrollments_student ON enrollments(student_id)`],
+      ['idx_enrollments_lecturer', `CREATE INDEX IF NOT EXISTS idx_enrollments_lecturer ON enrollments(lecturer_id)`],
+      ['idx_payments_enrollment', `CREATE INDEX IF NOT EXISTS idx_payments_enrollment ON payments(enrollment_id)`],
+      ['idx_payments_subscription', `CREATE INDEX IF NOT EXISTS idx_payments_subscription ON payments(subscription_id)`],
+      ['idx_payments_lecturer', `CREATE INDEX IF NOT EXISTS idx_payments_lecturer ON payments(lecturer_id)`],
+      ['idx_payments_student', `CREATE INDEX IF NOT EXISTS idx_payments_student ON payments(student_id)`],
+      ['idx_payments_date', `CREATE INDEX IF NOT EXISTS idx_payments_date ON payments(payment_date)`]
     ];
 
-    await env.DB.batch(statements.map(sql => env.DB.prepare(sql)));
+    for (const [stage, sql] of steps) await schemaStep(env, stage, sql);
 
-    // Upgrade older databases safely without repeating ALTER TABLE errors.
-    const { results: activityCols = [] } = await env.DB.prepare(`PRAGMA table_info(activity_logs)`).all();
-    const names = new Set(activityCols.map(c => c.name));
-    if (!names.has('admin_id')) await env.DB.prepare(`ALTER TABLE activity_logs ADD COLUMN admin_id INTEGER`).run();
-    if (!names.has('admin_name')) await env.DB.prepare(`ALTER TABLE activity_logs ADD COLUMN admin_name TEXT`).run();
+    // Repair databases created by an older version. Every added column is nullable or has a safe default.
+    const activityCols = await tableColumns(env,'activity_logs');
+    await addColumnIfMissing(env,'activity_logs',activityCols,'admin_id','INTEGER');
+    await addColumnIfMissing(env,'activity_logs',activityCols,'admin_name','TEXT');
 
-    const { results: adminCols = [] } = await env.DB.prepare(`PRAGMA table_info(admins)`).all();
-    const adminNames = new Set(adminCols.map(c => c.name));
-    if (!adminNames.has('is_owner')) await env.DB.prepare(`ALTER TABLE admins ADD COLUMN is_owner INTEGER NOT NULL DEFAULT 0 CHECK(is_owner IN (0,1))`).run();
+    const adminCols = await tableColumns(env,'admins');
+    await addColumnIfMissing(env,'admins',adminCols,'permissions',`TEXT NOT NULL DEFAULT '[]'`);
+    await addColumnIfMissing(env,'admins',adminCols,'status',`TEXT NOT NULL DEFAULT 'active'`);
+    await addColumnIfMissing(env,'admins',adminCols,'last_login_at','TEXT');
+    await addColumnIfMissing(env,'admins',adminCols,'failed_login_count','INTEGER NOT NULL DEFAULT 0');
+    await addColumnIfMissing(env,'admins',adminCols,'locked_until','TEXT');
+    await addColumnIfMissing(env,'admins',adminCols,'is_owner','INTEGER NOT NULL DEFAULT 0');
+    await addColumnIfMissing(env,'admins',adminCols,'created_at','TEXT');
+    await addColumnIfMissing(env,'admins',adminCols,'updated_at','TEXT');
 
-    await env.DB.batch([
-      env.DB.prepare(`INSERT OR IGNORE INTO settings(key,value) VALUES('platform_name','Lecturer Manager')`),
-      env.DB.prepare(`INSERT OR IGNORE INTO settings(key,value) VALUES('currency','EGP')`),
-      env.DB.prepare(`INSERT OR IGNORE INTO settings(key,value) VALUES('default_monthly_fee','500')`),
-      env.DB.prepare(`INSERT OR IGNORE INTO settings(key,value) VALUES('default_student_fee','200')`),
-      env.DB.prepare(`INSERT OR IGNORE INTO settings(key,value) VALUES('subscription_warning_days','7')`),
-      env.DB.prepare(`INSERT OR IGNORE INTO settings(key,value) VALUES('payment_methods','["Cash","InstaPay","Vodafone Cash","Bank Transfer","Card","Other"]')`)
-    ]);
+    const sessionCols = await tableColumns(env,'admin_sessions');
+    await addColumnIfMissing(env,'admin_sessions',sessionCols,'last_seen_at','TEXT');
+
+    const defaults = [
+      ['platform_name','Lecturer Manager'], ['currency','EGP'], ['default_monthly_fee','500'],
+      ['default_student_fee','200'], ['subscription_warning_days','7'],
+      ['payment_methods','["Cash","InstaPay","Vodafone Cash","Bank Transfer","Card","Other"]']
+    ];
+    for (const [key,value] of defaults) {
+      schemaStatus={ready:false,stage:`setting_${key}`,detail:''};
+      try { await env.DB.prepare(`INSERT OR IGNORE INTO settings(key,value) VALUES(?,?)`).bind(key,value).run(); }
+      catch(err){
+        const detail=safeDbDetail(err?.message||err);
+        const wrapped=new Error(detail); wrapped.code='DB_SCHEMA_INIT_FAILED'; wrapped.stage=`setting_${key}`; wrapped.dbDetail=detail; throw wrapped;
+      }
+    }
+
     schemaReady = true;
+    schemaStatus = { ready:true, stage:'ready', detail:'' };
   })().catch(err => {
     schemaInitPromise = null;
+    schemaReady = false;
     throw err;
   });
 
@@ -244,12 +317,20 @@ async function ensureDatabaseSchema(env){
 }
 
 async function api(request, env, path){
-  await ensureDatabaseSchema(env);
-
   if (path==='/api/system/health' && request.method==='GET') {
-    const adminCount = await env.DB.prepare(`SELECT COUNT(*) total FROM admins`).first();
-    return ok({ database:'ready', schema:'ready', admin_count:Number(adminCount?.total||0), setup_required:Number(adminCount?.total||0)===0, version:'2.0.1' });
+    if (!env?.DB || typeof env.DB.prepare !== 'function') {
+      return bad('قاعدة D1 غير مربوطة بالـWorker باسم DB.',503,'DB_NOT_CONFIGURED',{stage:'binding',version:'2.1.0'});
+    }
+    try {
+      await ensureDatabaseSchema(env);
+      const adminCount = await env.DB.prepare(`SELECT COUNT(*) total FROM admins`).first();
+      return ok({ database:'ready', schema:'ready', stage:'ready', admin_count:Number(adminCount?.total||0), setup_required:Number(adminCount?.total||0)===0, version:'2.1.0' });
+    } catch(err) {
+      return bad('قاعدة D1 مرتبطة، لكن تهيئة الجداول لم تكتمل.',503,err?.code||'DB_HEALTH_FAILED',{stage:err?.stage||schemaStatus.stage||'unknown',detail:safeDbDetail(err?.dbDetail||err?.message||schemaStatus.detail),version:'2.1.0'});
+    }
   }
+
+  await ensureDatabaseSchema(env);
 
   if (path==='/api/setup/status' && request.method==='GET') {
     const row=await env.DB.prepare(`SELECT COUNT(*) total FROM admins`).first();
@@ -261,7 +342,7 @@ async function api(request, env, path){
     if(Number(count?.total||0)>0) return bad('تم إنشاء حساب الـOwner بالفعل. استخدم شاشة تسجيل الدخول.',409,'SETUP_COMPLETE');
     const d=await readBody(request), fullName=text(d.full_name,160), username=normalizeUsername(d.username).slice(0,80), password=String(d.password||'');
     if(!fullName) return bad('اسم الـOwner مطلوب.');
-    if(!validUsername(username)) return bad('اسم المستخدم يجب أن يكون من 3 إلى 80 حرفاً، ويسمح بالحروف العربية أو الإنجليزية والأرقام و . _ - فقط.');
+    if(!validUsername(username)) return bad(`اسم المستخدم يجب أن يكون من 3 إلى 80 حرفاً. القيمة المستلمة طولها ${username.length} حرف.`,400,'INVALID_USERNAME');
     if(password.length<10) return bad('كلمة المرور يجب ألا تقل عن 10 أحرف.');
     const salt=randomToken(18), hash=await hashPassword(password,salt);
     const r=await env.DB.prepare(`INSERT INTO admins(username,full_name,password_salt,password_hash,role,permissions,status,is_owner) SELECT ?,?,?,?,?,?,'active',1 WHERE NOT EXISTS (SELECT 1 FROM admins)`).bind(username,fullName,salt,hash,'super_admin',JSON.stringify(PERMISSIONS)).run();
@@ -441,7 +522,7 @@ async function api(request, env, path){
     const denied=forbidUnless(admin,'admins.view');if(denied)return denied;const {results}=await env.DB.prepare(`SELECT id,username,full_name,role,permissions,status,last_login_at,created_at,is_owner FROM admins ORDER BY id ASC`).all();return ok({items:results.map(publicAdmin)});
   }
   if(path==='/api/admins'&&request.method==='POST'){
-    const denied=forbidUnless(admin,'admins.manage');if(denied)return denied;const d=await readBody(request),username=normalizeUsername(d.username).slice(0,80),fullName=text(d.full_name,160),password=String(d.password||''),requestedRole=d.role==='owner'?'viewer':d.role,role=ROLE_PRESETS[requestedRole]?requestedRole:(requestedRole==='custom'?'custom':'viewer');if(!validUsername(username))return bad('اسم المستخدم يجب أن يكون من 3 إلى 80 حرفاً، ويسمح بالحروف العربية أو الإنجليزية والأرقام و . _ - فقط.');if(!fullName)return bad('اسم المسؤول مطلوب.');if(password.length<10)return bad('كلمة المرور يجب ألا تقل عن 10 أحرف.');const salt=randomToken(18),hash=await hashPassword(password,salt),permissions=normalizePermissions(role,d.permissions);try{const r=await env.DB.prepare(`INSERT INTO admins(username,full_name,password_salt,password_hash,role,permissions,status) VALUES(?,?,?,?,?,?,?)`).bind(username,fullName,salt,hash,role,JSON.stringify(permissions),d.status==='suspended'?'suspended':'active').run();await log(env,admin,'Admin Created','admin',r.meta.last_row_id,username);return ok({id:r.meta.last_row_id},201);}catch(err){if(String(err.message).includes('UNIQUE'))return bad('اسم المستخدم مستخدم بالفعل.',409,'DUPLICATE_USERNAME');throw err;}
+    const denied=forbidUnless(admin,'admins.manage');if(denied)return denied;const d=await readBody(request),username=normalizeUsername(d.username).slice(0,80),fullName=text(d.full_name,160),password=String(d.password||''),requestedRole=d.role==='owner'?'viewer':d.role,role=ROLE_PRESETS[requestedRole]?requestedRole:(requestedRole==='custom'?'custom':'viewer');if(!validUsername(username))return bad(`اسم المستخدم يجب أن يكون من 3 إلى 80 حرفاً. القيمة المستلمة طولها ${username.length} حرف.`,400,'INVALID_USERNAME');if(!fullName)return bad('اسم المسؤول مطلوب.');if(password.length<10)return bad('كلمة المرور يجب ألا تقل عن 10 أحرف.');const salt=randomToken(18),hash=await hashPassword(password,salt),permissions=normalizePermissions(role,d.permissions);try{const r=await env.DB.prepare(`INSERT INTO admins(username,full_name,password_salt,password_hash,role,permissions,status) VALUES(?,?,?,?,?,?,?)`).bind(username,fullName,salt,hash,role,JSON.stringify(permissions),d.status==='suspended'?'suspended':'active').run();await log(env,admin,'Admin Created','admin',r.meta.last_row_id,username);return ok({id:r.meta.last_row_id},201);}catch(err){if(String(err.message).includes('UNIQUE'))return bad('اسم المستخدم مستخدم بالفعل.',409,'DUPLICATE_USERNAME');throw err;}
   }
   const adminMatch=path.match(/^\/api\/admins\/(\d+)$/);
   if(adminMatch&&request.method==='PUT'){
@@ -458,7 +539,7 @@ async function api(request, env, path){
 function securityHeaders(response){
   const h=new Headers(response.headers);
   h.set('x-content-type-options','nosniff'); h.set('x-frame-options','DENY'); h.set('referrer-policy','no-referrer'); h.set('permissions-policy','camera=(), microphone=(), geolocation=()');
-  h.set('content-security-policy',"default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'");
+  h.set('content-security-policy',"default-src 'self'; script-src 'self'; style-src 'self' https://cdn-uicons.flaticon.com; font-src 'self' https://cdn-uicons.flaticon.com data:; img-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'");
   h.set('strict-transport-security','max-age=31536000; includeSubDomains');
   return new Response(response.body,{status:response.status,statusText:response.statusText,headers:h});
 }
@@ -473,11 +554,13 @@ export default {
       console.error('Unhandled error',err);
       if(err?.status===413)return securityHeaders(bad('حجم الطلب أكبر من المسموح.',413,'PAYLOAD_TOO_LARGE'));
       const msg=String(err?.message||err);
-      if(err?.code==='DB_NOT_CONFIGURED' || msg.includes('D1 binding DB is not configured')) return securityHeaders(bad('قاعدة البيانات D1 غير مربوطة بالموقع. اربط قاعدة D1 بالـ binding باسم DB.',503,'DB_NOT_CONFIGURED'));
-      if(msg.includes('no such table')) return securityHeaders(bad('تعذر تجهيز جداول قاعدة البيانات تلقائيًا. تحقق من صلاحية D1 binding باسم DB ثم أعد المحاولة.',503,'DB_SCHEMA_ERROR'));
+      if(err?.code==='DB_NOT_CONFIGURED' || msg.includes('D1 binding DB is not configured')) return securityHeaders(bad('قاعدة D1 غير مربوطة بالموقع. اربطها بالـ binding باسم DB.',503,'DB_NOT_CONFIGURED',{stage:err?.stage||'binding'}));
+      if(err?.code==='DB_CONNECTION_FAILED') return securityHeaders(bad('تعذر الاتصال بقاعدة D1 المرتبطة.',503,'DB_CONNECTION_FAILED',{stage:err?.stage||'connection_test',detail:safeDbDetail(err?.dbDetail||msg)}));
+      if(err?.code==='DB_SCHEMA_INIT_FAILED' || msg.includes('no such table')) return securityHeaders(bad('حدث خطأ أثناء تجهيز قاعدة D1.',503,'DB_SCHEMA_INIT_FAILED',{stage:err?.stage||schemaStatus.stage||'schema',detail:safeDbDetail(err?.dbDetail||msg)}));
       if(msg.includes('UNIQUE constraint failed')&&msg.includes('enrollments'))return securityHeaders(bad('هذا الطالب مسجل بالفعل مع هذا المحاضر.',409,'DUPLICATE_ENROLLMENT'));
+      if(/D1_|SQLITE_|database|no such column|constraint failed/i.test(msg)) return securityHeaders(bad('حدث خطأ أثناء تنفيذ عملية على قاعدة D1.',500,'DB_OPERATION_FAILED',{stage:'request',detail:safeDbDetail(msg)}));
       console.error('Internal error detail:', msg);
-      return securityHeaders(bad('تعذر إكمال العملية. تحقق من إعداد قاعدة D1 وVariables and Secrets ثم حاول مرة أخرى.',500,'INTERNAL_ERROR'));
+      return securityHeaders(bad('حدث خطأ داخلي في التطبيق. أعد المحاولة، وإذا استمر الخطأ افتح فحص النظام.',500,'INTERNAL_ERROR'));
     }
   }
 };

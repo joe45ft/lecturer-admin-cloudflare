@@ -39,3 +39,15 @@ npx wrangler deploy
 - Login rate lockout
 - Security headers / CSP
 - Server-side validation
+
+## v2.1.0 UI & Auto Refresh
+
+- Flaticon UIcons (Rounded Regular) integrated through the official CDN.
+- Visible attribution is included in the sidebar for the free UIcons license.
+- Smart auto refresh is enabled by default every 30 seconds.
+- Auto refresh pauses while the browser tab is hidden or a modal dialog is open.
+- Manual Refresh button is available in the top bar.
+- The user can disable auto refresh; the preference is stored locally in the browser.
+- Only the current page plus dashboard counters are refreshed, reducing unnecessary requests.
+
+> When applying the patch to an existing deployed project, keep your current `wrangler.jsonc` so the real D1 `database_id` is preserved.

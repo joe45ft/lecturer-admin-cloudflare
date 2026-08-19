@@ -6,22 +6,41 @@
   <meta name="robots" content="noindex,nofollow,noarchive" />
   <meta name="color-scheme" content="light" />
   <title>Lecturer Manager</title>
+  <link rel="preconnect" href="https://cdn-uicons.flaticon.com" crossorigin />
+  <link rel="stylesheet" href="https://cdn-uicons.flaticon.com/4.0.0/uicons-regular-rounded/css/uicons-regular-rounded.css" />
   <link rel="stylesheet" href="/style.css" />
 </head>
 <body>
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
 
+
+  <section id="systemView" class="login-shell hidden" aria-labelledby="systemTitle">
+    <div class="login-card setup-card">
+      <div class="brand-mark" aria-hidden="true"><i class="fi fi-rr-graduation-cap"></i></div>
+      <span class="setup-kicker">SYSTEM CHECK</span>
+      <h1 id="systemTitle">فحص إعداد المنصة</h1>
+      <p id="systemMessage" class="muted">يتم فحص اتصال Cloudflare D1 وتجهيز الجداول.</p>
+      <div class="diagnostic-box">
+        <div><strong>الكود:</strong> <code id="systemCode">-</code></div>
+        <div><strong>المرحلة:</strong> <code id="systemStage">-</code></div>
+        <div><strong>التفاصيل:</strong> <code id="systemDetail">-</code></div>
+      </div>
+      <button id="retrySystemBtn" class="btn primary wide" type="button">إعادة الفحص</button>
+      <small class="muted">نسخة v2.1.0 لا تحتاج ADMIN_USERNAME أو ADMIN_PASSWORD أو SESSION_SECRET.</small>
+    </div>
+  </section>
+
   <section id="setupView" class="login-shell hidden" aria-labelledby="setupTitle">
     <form id="setupForm" class="login-card setup-card" autocomplete="on">
-      <div class="brand-mark" aria-hidden="true">LM</div>
+      <div class="brand-mark" aria-hidden="true"><i class="fi fi-rr-graduation-cap"></i></div>
       <span class="setup-kicker">FIRST TIME SETUP</span>
       <h1 id="setupTitle">إنشاء حساب الـOwner</h1>
       <p class="muted">هذا الحساب هو المالك الرئيسي للمنصة وصاحب أعلى صلاحية. تظهر هذه الشاشة مرة واحدة فقط.</p>
       <label for="ownerFullName">الاسم الكامل</label>
       <input id="ownerFullName" name="full_name" autocomplete="name" required maxlength="160" placeholder="مثال: Ahmed Hany" />
       <label for="ownerUsername">اسم المستخدم</label>
-      <input id="ownerUsername" name="username" autocomplete="username" required minlength="3" maxlength="80" dir="auto" placeholder="owner أو أحمد" />
-      <small class="password-hint">3 أحرف على الأقل — عربي أو إنجليزي أو أرقام، ويسمح بـ . _ -</small>
+      <input id="ownerUsername" name="username" autocomplete="username" required minlength="3" maxlength="80" dir="auto" placeholder="مثال: owner أو أحمد هاني" />
+      <small class="password-hint">3 أحرف على الأقل — يقبل العربي والإنجليزي والأرقام والمسافات والرموز العادية.</small>
       <label for="ownerPassword">كلمة المرور</label>
       <input id="ownerPassword" name="password" type="password" autocomplete="new-password" required minlength="10" />
       <label for="ownerPasswordConfirm">تأكيد كلمة المرور</label>
@@ -34,7 +53,7 @@
 
   <section id="loginView" class="login-shell hidden" aria-labelledby="loginTitle">
     <form id="loginForm" class="login-card" autocomplete="on">
-      <div class="brand-mark" aria-hidden="true">LM</div>
+      <div class="brand-mark" aria-hidden="true"><i class="fi fi-rr-graduation-cap"></i></div>
       <h1 id="loginTitle">Lecturer Manager</h1>
       <p>لوحة إدارة المحاضرين والطلاب</p>
       <label for="loginUsername">اسم المستخدم</label>
@@ -48,74 +67,85 @@
 
   <div id="appView" class="app hidden">
     <aside class="sidebar" id="sidebar">
-      <div class="brand"><span class="brand-mark small" aria-hidden="true">LM</span><div><strong id="brandName">Lecturer Manager</strong><small id="adminIdentity">Admin</small></div></div>
+      <div class="brand"><span class="brand-mark small" aria-hidden="true"><i class="fi fi-rr-graduation-cap"></i></span><div><strong id="brandName">Lecturer Manager</strong><small id="adminIdentity">Admin</small></div></div>
       <nav id="nav" aria-label="القائمة الرئيسية">
-        <button data-page="dashboard" data-permission="dashboard.view" class="active">الرئيسية</button>
-        <button data-page="lecturers" data-permission="lecturers.view">المحاضرون</button>
-        <button data-page="students" data-permission="students.view">الطلاب</button>
-        <button data-page="enrollments" data-permission="enrollments.view">التسجيلات</button>
-        <button data-page="payments" data-permission="payments.view">المدفوعات</button>
-        <button data-page="finance" data-permission="finance.view">المالية</button>
-        <button data-page="admins" data-permission="admins.view">المسؤولون والصلاحيات</button>
-        <button data-page="activity" data-permission="activity.view">سجل النشاط</button>
-        <button data-page="settings" data-permission="settings.view">الإعدادات</button>
+        <button data-page="dashboard" data-permission="dashboard.view" class="active"><i class="fi fi-rr-dashboard-monitor" aria-hidden="true"></i><span>الرئيسية</span></button>
+        <button data-page="lecturers" data-permission="lecturers.view"><i class="fi fi-rr-chalkboard-user" aria-hidden="true"></i><span>المحاضرون</span></button>
+        <button data-page="students" data-permission="students.view"><i class="fi fi-rr-users-class" aria-hidden="true"></i><span>الطلاب</span></button>
+        <button data-page="enrollments" data-permission="enrollments.view"><i class="fi fi-rr-clipboard-list-check" aria-hidden="true"></i><span>التسجيلات</span></button>
+        <button data-page="payments" data-permission="payments.view"><i class="fi fi-rr-receipt" aria-hidden="true"></i><span>المدفوعات</span></button>
+        <button data-page="finance" data-permission="finance.view"><i class="fi fi-rr-coins" aria-hidden="true"></i><span>المالية</span></button>
+        <button data-page="admins" data-permission="admins.view"><i class="fi fi-rr-user-shield" aria-hidden="true"></i><span>المسؤولون والصلاحيات</span></button>
+        <button data-page="activity" data-permission="activity.view"><i class="fi fi-rr-clock" aria-hidden="true"></i><span>سجل النشاط</span></button>
+        <button data-page="settings" data-permission="settings.view"><i class="fi fi-rr-settings-sliders" aria-hidden="true"></i><span>الإعدادات</span></button>
       </nav>
       <div class="sidebar-bottom">
-        <button id="changePasswordBtn" class="btn ghost">تغيير كلمة المرور</button>
-        <button id="logoutBtn" class="btn ghost danger">تسجيل الخروج</button>
+        <button id="changePasswordBtn" class="btn ghost"><i class="fi fi-rr-key" aria-hidden="true"></i><span>تغيير كلمة المرور</span></button>
+        <button id="logoutBtn" class="btn ghost danger"><i class="fi fi-rr-sign-out-alt" aria-hidden="true"></i><span>تسجيل الخروج</span></button>
+        <small class="icon-credit">UIcons by <a href="https://www.flaticon.com/uicons" target="_blank" rel="noopener noreferrer">Flaticon</a></small>
       </div>
     </aside>
 
     <main class="main">
       <header class="topbar">
-        <div class="title-row"><button id="menuBtn" class="icon-btn mobile-only" aria-label="فتح القائمة" aria-controls="sidebar">☰</button><div><h2 id="pageTitle">الرئيسية</h2><p id="pageSubtitle">نظرة عامة على المنصة</p></div></div>
-        <div class="quick-actions">
-          <button class="btn" data-open="lecturerModal" data-permission="lecturers.create">+ محاضر</button>
-          <button class="btn" data-open="studentModal" data-permission="students.create">+ طالب</button>
-          <button class="btn primary" data-open="enrollmentModal" data-permission="enrollments.create">+ تسجيل طالب</button>
+        <div class="title-row"><button id="menuBtn" class="icon-btn mobile-only" aria-label="فتح القائمة" aria-controls="sidebar"><i class="fi fi-rr-menu-burger" aria-hidden="true"></i></button><div><h2 id="pageTitle">الرئيسية</h2><p id="pageSubtitle">نظرة عامة على المنصة</p></div></div>
+        <div class="topbar-tools">
+          <div class="refresh-control" aria-label="تحديث البيانات">
+            <button id="refreshBtn" class="btn refresh-btn" type="button" title="تحديث الآن"><i class="fi fi-rr-refresh" aria-hidden="true"></i><span>تحديث</span></button>
+            <label class="auto-refresh-toggle" title="تحديث البيانات تلقائيًا كل 30 ثانية">
+              <input id="autoRefreshToggle" type="checkbox" checked />
+              <span>تحديث تلقائي</span>
+            </label>
+            <small id="refreshStatus" class="refresh-status" aria-live="polite">لم يتم التحديث بعد</small>
+          </div>
+          <div class="quick-actions">
+            <button class="btn" data-open="lecturerModal" data-permission="lecturers.create"><i class="fi fi-rr-user-add" aria-hidden="true"></i><span>محاضر</span></button>
+            <button class="btn" data-open="studentModal" data-permission="students.create"><i class="fi fi-rr-user-add" aria-hidden="true"></i><span>طالب</span></button>
+            <button class="btn primary" data-open="enrollmentModal" data-permission="enrollments.create"><i class="fi fi-rr-clipboard-list-check" aria-hidden="true"></i><span>تسجيل طالب</span></button>
+          </div>
         </div>
       </header>
 
       <section id="dashboard" class="page active" aria-labelledby="pageTitle">
         <div id="stats" class="stats"></div>
         <div class="grid-2">
-          <div class="panel"><div class="panel-head"><h3>آخر المدفوعات</h3></div><div id="recentPayments"></div></div>
-          <div class="panel"><div class="panel-head"><h3>تنبيهات</h3></div><div id="alerts"></div></div>
+          <div class="panel"><div class="panel-head"><h3><i class="fi fi-rr-receipt" aria-hidden="true"></i> آخر المدفوعات</h3></div><div id="recentPayments"></div></div>
+          <div class="panel"><div class="panel-head"><h3><i class="fi fi-rr-bell" aria-hidden="true"></i> تنبيهات</h3></div><div id="alerts"></div></div>
         </div>
       </section>
 
       <section id="lecturers" class="page">
-        <div class="panel"><div class="panel-head"><h3>المحاضرون</h3><input id="lecturerSearch" aria-label="بحث في المحاضرين" placeholder="بحث بالاسم أو الهاتف أو المادة" /></div><div class="table-wrap"><table><thead><tr><th>المحاضر</th><th>المادة</th><th>الهاتف</th><th>الطلاب</th><th>اشتراك شهري</th><th>رسوم الطالب</th><th>انتهاء الاشتراك</th><th>الحالة</th><th>إجراءات</th></tr></thead><tbody id="lecturersBody"></tbody></table></div></div>
+        <div class="panel"><div class="panel-head"><h3><i class="fi fi-rr-chalkboard-user" aria-hidden="true"></i> المحاضرون</h3><input id="lecturerSearch" aria-label="بحث في المحاضرين" placeholder="بحث بالاسم أو الهاتف أو المادة" /></div><div class="table-wrap"><table><thead><tr><th>المحاضر</th><th>المادة</th><th>الهاتف</th><th>الطلاب</th><th>اشتراك شهري</th><th>رسوم الطالب</th><th>انتهاء الاشتراك</th><th>الحالة</th><th>إجراءات</th></tr></thead><tbody id="lecturersBody"></tbody></table></div></div>
       </section>
 
       <section id="students" class="page">
-        <div class="panel"><div class="panel-head"><h3>الطلاب</h3><input id="studentSearch" aria-label="بحث في الطلاب" placeholder="بحث بالاسم أو الكود أو الهاتف" /></div><div class="table-wrap"><table><thead><tr><th>الكود</th><th>الطالب</th><th>الهاتف</th><th>ولي الأمر</th><th>المحاضرون</th><th>المطلوب</th><th>المدفوع</th><th>المتبقي</th><th>إجراءات</th></tr></thead><tbody id="studentsBody"></tbody></table></div></div>
+        <div class="panel"><div class="panel-head"><h3><i class="fi fi-rr-users-class" aria-hidden="true"></i> الطلاب</h3><input id="studentSearch" aria-label="بحث في الطلاب" placeholder="بحث بالاسم أو الكود أو الهاتف" /></div><div class="table-wrap"><table><thead><tr><th>الكود</th><th>الطالب</th><th>الهاتف</th><th>ولي الأمر</th><th>المحاضرون</th><th>المطلوب</th><th>المدفوع</th><th>المتبقي</th><th>إجراءات</th></tr></thead><tbody id="studentsBody"></tbody></table></div></div>
       </section>
 
       <section id="enrollments" class="page">
-        <div class="panel"><div class="panel-head"><h3>تسجيلات الطلاب مع المحاضرين</h3><input id="enrollmentSearch" aria-label="بحث في التسجيلات" placeholder="بحث بالطالب أو المحاضر" /></div><div class="table-wrap"><table><thead><tr><th>الطالب</th><th>المحاضر</th><th>المادة</th><th>التاريخ</th><th>المطلوب</th><th>المدفوع</th><th>المتبقي</th><th>الحالة</th><th>إجراءات</th></tr></thead><tbody id="enrollmentsBody"></tbody></table></div></div>
+        <div class="panel"><div class="panel-head"><h3><i class="fi fi-rr-clipboard-list-check" aria-hidden="true"></i> تسجيلات الطلاب مع المحاضرين</h3><input id="enrollmentSearch" aria-label="بحث في التسجيلات" placeholder="بحث بالطالب أو المحاضر" /></div><div class="table-wrap"><table><thead><tr><th>الطالب</th><th>المحاضر</th><th>المادة</th><th>التاريخ</th><th>المطلوب</th><th>المدفوع</th><th>المتبقي</th><th>الحالة</th><th>إجراءات</th></tr></thead><tbody id="enrollmentsBody"></tbody></table></div></div>
       </section>
 
       <section id="payments" class="page">
-        <div class="panel"><div class="panel-head"><h3>سجل المدفوعات</h3><input id="paymentSearch" aria-label="بحث في المدفوعات" placeholder="بحث بالاسم أو رقم الإيصال" /></div><div class="table-wrap"><table><thead><tr><th>الإيصال</th><th>النوع</th><th>الاسم</th><th>المبلغ</th><th>الطريقة</th><th>التاريخ</th></tr></thead><tbody id="paymentsBody"></tbody></table></div></div>
+        <div class="panel"><div class="panel-head"><h3><i class="fi fi-rr-receipt" aria-hidden="true"></i> سجل المدفوعات</h3><input id="paymentSearch" aria-label="بحث في المدفوعات" placeholder="بحث بالاسم أو رقم الإيصال" /></div><div class="table-wrap"><table><thead><tr><th>الإيصال</th><th>النوع</th><th>الاسم</th><th>المبلغ</th><th>الطريقة</th><th>التاريخ</th></tr></thead><tbody id="paymentsBody"></tbody></table></div></div>
       </section>
 
       <section id="finance" class="page">
         <div id="financeCards" class="stats"></div>
-        <div class="panel"><div class="panel-head"><h3>ملخص مالي</h3></div><div class="empty-note">الإيرادات محسوبة من المدفوعات المسجلة فعليًا، وليس من الرسوم المطلوبة.</div></div>
+        <div class="panel"><div class="panel-head"><h3><i class="fi fi-rr-coins" aria-hidden="true"></i> ملخص مالي</h3></div><div class="empty-note">الإيرادات محسوبة من المدفوعات المسجلة فعليًا، وليس من الرسوم المطلوبة.</div></div>
       </section>
 
       <section id="admins" class="page">
-        <div class="panel"><div class="panel-head"><div><h3>المسؤولون والصلاحيات</h3><p class="muted">الصلاحيات يتم تطبيقها في الواجهة والـAPI معاً.</p></div><button class="btn primary" id="addAdminBtn" data-permission="admins.manage">+ إضافة مسؤول</button></div><div class="table-wrap"><table><thead><tr><th>الاسم</th><th>اسم المستخدم</th><th>الدور</th><th>الحالة</th><th>آخر دخول</th><th>إجراءات</th></tr></thead><tbody id="adminsBody"></tbody></table></div></div>
+        <div class="panel"><div class="panel-head"><div><h3><i class="fi fi-rr-user-shield" aria-hidden="true"></i> المسؤولون والصلاحيات</h3><p class="muted">الصلاحيات يتم تطبيقها في الواجهة والـAPI معاً.</p></div><button class="btn primary" id="addAdminBtn" data-permission="admins.manage"><i class="fi fi-rr-user-add" aria-hidden="true"></i><span>إضافة مسؤول</span></button></div><div class="table-wrap"><table><thead><tr><th>الاسم</th><th>اسم المستخدم</th><th>الدور</th><th>الحالة</th><th>آخر دخول</th><th>إجراءات</th></tr></thead><tbody id="adminsBody"></tbody></table></div></div>
       </section>
 
       <section id="activity" class="page">
-        <div class="panel"><div class="panel-head"><h3>سجل النشاط</h3></div><div class="table-wrap"><table><thead><tr><th>المسؤول</th><th>العملية</th><th>النوع</th><th>التفاصيل</th><th>التاريخ</th></tr></thead><tbody id="activityBody"></tbody></table></div></div>
+        <div class="panel"><div class="panel-head"><h3><i class="fi fi-rr-clock" aria-hidden="true"></i> سجل النشاط</h3></div><div class="table-wrap"><table><thead><tr><th>المسؤول</th><th>العملية</th><th>النوع</th><th>التفاصيل</th><th>التاريخ</th></tr></thead><tbody id="activityBody"></tbody></table></div></div>
       </section>
 
       <section id="settings" class="page">
         <form id="settingsForm" class="panel form-grid">
-          <div class="panel-head full"><h3>الإعدادات</h3></div>
+          <div class="panel-head full"><h3><i class="fi fi-rr-settings-sliders" aria-hidden="true"></i> الإعدادات</h3></div>
           <label>اسم المنصة<input name="platform_name" maxlength="100" /></label>
           <label>العملة<input name="currency" maxlength="12" /></label>
           <label>الاشتراك الشهري الافتراضي<input name="default_monthly_fee" type="number" min="0" step="0.01" /></label>
