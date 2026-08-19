@@ -130,8 +130,132 @@ function studentPayload(d){
   return {value:{fullName,phone:text(d.phone,40),parentPhone:text(d.parent_phone,40),email,dateOfBirth:text(d.date_of_birth,20)||null,gender:text(d.gender,30),address:text(d.address,300),notes:text(d.notes,1000),status}};
 }
 
+
+let schemaReady = false;
+let schemaInitPromise = null;
+
+async function ensureDatabaseSchema(env){
+  if (schemaReady) return;
+  if (!env?.DB || typeof env.DB.prepare !== 'function') {
+    const err = new Error('D1 binding DB is not configured.');
+    err.code = 'DB_NOT_CONFIGURED';
+    throw err;
+  }
+  if (schemaInitPromise) return schemaInitPromise;
+
+  schemaInitPromise = (async () => {
+    const statements = [
+      `CREATE TABLE IF NOT EXISTS lecturers (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, full_name TEXT NOT NULL, phone TEXT, email TEXT, subject TEXT,
+        address TEXT, notes TEXT, monthly_fee REAL NOT NULL DEFAULT 0, student_enrollment_fee REAL NOT NULL DEFAULT 0,
+        subscription_start_date TEXT, subscription_end_date TEXT,
+        status TEXT NOT NULL DEFAULT 'active' CHECK(status IN ('active','suspended','archived')),
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+      )`,
+      `CREATE TABLE IF NOT EXISTS students (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, student_code TEXT UNIQUE, full_name TEXT NOT NULL, phone TEXT,
+        parent_phone TEXT, email TEXT, date_of_birth TEXT, gender TEXT, address TEXT, notes TEXT,
+        status TEXT NOT NULL DEFAULT 'active' CHECK(status IN ('active','suspended','archived')),
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+      )`,
+      `CREATE TABLE IF NOT EXISTS enrollments (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, student_id INTEGER NOT NULL, lecturer_id INTEGER NOT NULL,
+        subject TEXT, enrollment_date TEXT NOT NULL DEFAULT (date('now')), original_fee REAL NOT NULL DEFAULT 0,
+        required_fee REAL NOT NULL DEFAULT 0, status TEXT NOT NULL DEFAULT 'active' CHECK(status IN ('active','cancelled')),
+        notes TEXT, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY(student_id) REFERENCES students(id) ON DELETE RESTRICT,
+        FOREIGN KEY(lecturer_id) REFERENCES lecturers(id) ON DELETE RESTRICT
+      )`,
+      `CREATE UNIQUE INDEX IF NOT EXISTS idx_active_student_lecturer ON enrollments(student_id, lecturer_id) WHERE status='active'`,
+      `CREATE TABLE IF NOT EXISTS lecturer_subscriptions (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, lecturer_id INTEGER NOT NULL, start_date TEXT NOT NULL, end_date TEXT NOT NULL,
+        months INTEGER NOT NULL DEFAULT 1, required_amount REAL NOT NULL DEFAULT 0, paid_amount REAL NOT NULL DEFAULT 0,
+        status TEXT NOT NULL DEFAULT 'unpaid' CHECK(status IN ('unpaid','partial','paid','cancelled')), notes TEXT,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY(lecturer_id) REFERENCES lecturers(id) ON DELETE RESTRICT
+      )`,
+      `CREATE TABLE IF NOT EXISTS payments (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, receipt_no TEXT UNIQUE NOT NULL,
+        payment_type TEXT NOT NULL CHECK(payment_type IN ('lecturer_subscription','student_enrollment')),
+        lecturer_id INTEGER, student_id INTEGER, enrollment_id INTEGER, subscription_id INTEGER,
+        amount REAL NOT NULL CHECK(amount >= 0), payment_method TEXT NOT NULL DEFAULT 'Cash', reference TEXT, notes TEXT,
+        payment_date TEXT NOT NULL DEFAULT (datetime('now')), created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY(lecturer_id) REFERENCES lecturers(id) ON DELETE RESTRICT,
+        FOREIGN KEY(student_id) REFERENCES students(id) ON DELETE RESTRICT,
+        FOREIGN KEY(enrollment_id) REFERENCES enrollments(id) ON DELETE RESTRICT,
+        FOREIGN KEY(subscription_id) REFERENCES lecturer_subscriptions(id) ON DELETE RESTRICT
+      )`,
+      `CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)`,
+      `CREATE TABLE IF NOT EXISTS activity_logs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, action TEXT NOT NULL, entity_type TEXT, entity_id INTEGER, details TEXT,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, admin_id INTEGER, admin_name TEXT
+      )`,
+      `CREATE TABLE IF NOT EXISTS admins (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT NOT NULL UNIQUE COLLATE NOCASE, full_name TEXT NOT NULL,
+        password_salt TEXT NOT NULL, password_hash TEXT NOT NULL,
+        role TEXT NOT NULL DEFAULT 'viewer' CHECK(role IN ('super_admin','manager','finance','data_entry','viewer','custom')),
+        permissions TEXT NOT NULL DEFAULT '[]', status TEXT NOT NULL DEFAULT 'active' CHECK(status IN ('active','suspended')),
+        last_login_at TEXT, failed_login_count INTEGER NOT NULL DEFAULT 0, locked_until TEXT,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+      )`,
+      `CREATE TABLE IF NOT EXISTS admin_sessions (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, admin_id INTEGER NOT NULL, token_hash TEXT NOT NULL UNIQUE,
+        csrf_token TEXT NOT NULL, expires_at TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        last_seen_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY(admin_id) REFERENCES admins(id) ON DELETE CASCADE
+      )`,
+      `CREATE INDEX IF NOT EXISTS idx_admin_sessions_admin ON admin_sessions(admin_id)`,
+      `CREATE INDEX IF NOT EXISTS idx_admin_sessions_expires ON admin_sessions(expires_at)`,
+      `CREATE INDEX IF NOT EXISTS idx_lecturers_phone ON lecturers(phone)`,
+      `CREATE INDEX IF NOT EXISTS idx_lecturers_status ON lecturers(status)`,
+      `CREATE INDEX IF NOT EXISTS idx_students_phone ON students(phone)`,
+      `CREATE INDEX IF NOT EXISTS idx_students_parent_phone ON students(parent_phone)`,
+      `CREATE INDEX IF NOT EXISTS idx_students_status ON students(status)`,
+      `CREATE INDEX IF NOT EXISTS idx_enrollments_student ON enrollments(student_id)`,
+      `CREATE INDEX IF NOT EXISTS idx_enrollments_lecturer ON enrollments(lecturer_id)`,
+      `CREATE INDEX IF NOT EXISTS idx_payments_enrollment ON payments(enrollment_id)`,
+      `CREATE INDEX IF NOT EXISTS idx_payments_subscription ON payments(subscription_id)`,
+      `CREATE INDEX IF NOT EXISTS idx_payments_lecturer ON payments(lecturer_id)`,
+      `CREATE INDEX IF NOT EXISTS idx_payments_student ON payments(student_id)`,
+      `CREATE INDEX IF NOT EXISTS idx_payments_date ON payments(payment_date)`
+    ];
+
+    await env.DB.batch(statements.map(sql => env.DB.prepare(sql)));
+
+    // Upgrade older databases safely without repeating ALTER TABLE errors.
+    const { results: activityCols = [] } = await env.DB.prepare(`PRAGMA table_info(activity_logs)`).all();
+    const names = new Set(activityCols.map(c => c.name));
+    if (!names.has('admin_id')) await env.DB.prepare(`ALTER TABLE activity_logs ADD COLUMN admin_id INTEGER`).run();
+    if (!names.has('admin_name')) await env.DB.prepare(`ALTER TABLE activity_logs ADD COLUMN admin_name TEXT`).run();
+
+    await env.DB.batch([
+      env.DB.prepare(`INSERT OR IGNORE INTO settings(key,value) VALUES('platform_name','Lecturer Manager')`),
+      env.DB.prepare(`INSERT OR IGNORE INTO settings(key,value) VALUES('currency','EGP')`),
+      env.DB.prepare(`INSERT OR IGNORE INTO settings(key,value) VALUES('default_monthly_fee','500')`),
+      env.DB.prepare(`INSERT OR IGNORE INTO settings(key,value) VALUES('default_student_fee','200')`),
+      env.DB.prepare(`INSERT OR IGNORE INTO settings(key,value) VALUES('subscription_warning_days','7')`),
+      env.DB.prepare(`INSERT OR IGNORE INTO settings(key,value) VALUES('payment_methods','["Cash","InstaPay","Vodafone Cash","Bank Transfer","Card","Other"]')`)
+    ]);
+    schemaReady = true;
+  })().catch(err => {
+    schemaInitPromise = null;
+    throw err;
+  });
+
+  return schemaInitPromise;
+}
+
 async function api(request, env, path){
+  await ensureDatabaseSchema(env);
+
+  if (path==='/api/system/health' && request.method==='GET') {
+    const adminCount = await env.DB.prepare(`SELECT COUNT(*) total FROM admins`).first();
+    return ok({ database:'ready', schema:'ready', admin_count:Number(adminCount?.total||0), admin_secret_configured:Boolean(env.ADMIN_PASSWORD), admin_username:env.ADMIN_USERNAME||'admin' });
+  }
+
   if (path==='/api/auth/login' && request.method==='POST') {
+    if (!env.ADMIN_PASSWORD) return bad('إعداد ADMIN_PASSWORD غير موجود في Cloudflare. أضفه من Settings → Variables and Secrets كـ Secret ثم أعد Deploy.',503,'ADMIN_SECRET_MISSING');
+    if (!env.ADMIN_USERNAME) return bad('إعداد ADMIN_USERNAME غير موجود في Cloudflare.',503,'ADMIN_USERNAME_MISSING');
     const d=await readBody(request); const username=text(d.username,80), password=String(d.password||'');
     if (!username || !password) return bad('أدخل اسم المستخدم وكلمة المرور.');
     await ensureBootstrapAdmin(env,username,password);
@@ -330,8 +454,11 @@ export default {
       console.error('Unhandled error',err);
       if(err?.status===413)return securityHeaders(bad('حجم الطلب أكبر من المسموح.',413,'PAYLOAD_TOO_LARGE'));
       const msg=String(err?.message||err);
+      if(err?.code==='DB_NOT_CONFIGURED' || msg.includes('D1 binding DB is not configured')) return securityHeaders(bad('قاعدة البيانات D1 غير مربوطة بالموقع. اربط قاعدة D1 بالـ binding باسم DB.',503,'DB_NOT_CONFIGURED'));
+      if(msg.includes('no such table')) return securityHeaders(bad('تعذر تجهيز جداول قاعدة البيانات تلقائيًا. تحقق من صلاحية D1 binding باسم DB ثم أعد المحاولة.',503,'DB_SCHEMA_ERROR'));
       if(msg.includes('UNIQUE constraint failed')&&msg.includes('enrollments'))return securityHeaders(bad('هذا الطالب مسجل بالفعل مع هذا المحاضر.',409,'DUPLICATE_ENROLLMENT'));
-      return securityHeaders(bad('حدث خطأ غير متوقع. حاول مرة أخرى.',500,'INTERNAL_ERROR'));
+      console.error('Internal error detail:', msg);
+      return securityHeaders(bad('تعذر إكمال العملية. تحقق من إعداد قاعدة D1 وVariables and Secrets ثم حاول مرة أخرى.',500,'INTERNAL_ERROR'));
     }
   }
 };

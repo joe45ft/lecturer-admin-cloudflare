@@ -83,3 +83,14 @@ npm test
 - Never commit `.dev.vars`, passwords, API tokens, or secrets.
 - Keep D1 migrations under version control and apply them before deploying code that depends on them.
 - Do not remove the last active Super Admin.
+
+
+## v1.2.0 — Automatic D1 Schema Bootstrap
+
+This version automatically creates/updates all required D1 tables, indexes, and default settings on the first API request. Manual migration execution is no longer required for a brand-new empty D1 database. The D1 database still must exist and be bound as `DB` with a valid `database_id` in Cloudflare.
+
+Health check after deployment: `/api/system/health`
+
+Required Cloudflare variables:
+- `ADMIN_USERNAME` (plain variable; default project value: `admin`)
+- `ADMIN_PASSWORD` (Secret)
