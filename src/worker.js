@@ -62,6 +62,8 @@ async function readBody(request) {
 }
 function num(v, fallback=0) { const n=Number(v); return Number.isFinite(n)?n:fallback; }
 function text(v,max=500){ return String(v??'').trim().slice(0,max); }
+function normalizeUsername(v){ return String(v??'').normalize('NFKC').replace(/[\u200B-\u200D\uFEFF]/g,'').trim(); }
+function validUsername(v){ const u=normalizeUsername(v); return u.length>=3 && u.length<=80 && /^[\p{L}\p{N}._-]+$/u.test(u); }
 function validEmail(v){ return !v || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v); }
 function today(){ return new Date().toISOString().slice(0,10); }
 function addMonths(dateString, months){ const d=new Date(`${dateString}T00:00:00Z`); d.setUTCMonth(d.getUTCMonth()+Number(months)); return d.toISOString().slice(0,10); }
@@ -246,7 +248,7 @@ async function api(request, env, path){
 
   if (path==='/api/system/health' && request.method==='GET') {
     const adminCount = await env.DB.prepare(`SELECT COUNT(*) total FROM admins`).first();
-    return ok({ database:'ready', schema:'ready', admin_count:Number(adminCount?.total||0), setup_required:Number(adminCount?.total||0)===0, version:'2.0.0' });
+    return ok({ database:'ready', schema:'ready', admin_count:Number(adminCount?.total||0), setup_required:Number(adminCount?.total||0)===0, version:'2.0.1' });
   }
 
   if (path==='/api/setup/status' && request.method==='GET') {
@@ -257,9 +259,9 @@ async function api(request, env, path){
   if (path==='/api/setup/owner' && request.method==='POST') {
     const count=await env.DB.prepare(`SELECT COUNT(*) total FROM admins`).first();
     if(Number(count?.total||0)>0) return bad('تم إنشاء حساب الـOwner بالفعل. استخدم شاشة تسجيل الدخول.',409,'SETUP_COMPLETE');
-    const d=await readBody(request), fullName=text(d.full_name,160), username=text(d.username,80), password=String(d.password||'');
+    const d=await readBody(request), fullName=text(d.full_name,160), username=normalizeUsername(d.username).slice(0,80), password=String(d.password||'');
     if(!fullName) return bad('اسم الـOwner مطلوب.');
-    if(!/^[A-Za-z0-9._-]{3,80}$/.test(username)) return bad('اسم المستخدم يجب أن يكون 3 أحرف على الأقل ويحتوي على حروف أو أرقام أو . _ - فقط.');
+    if(!validUsername(username)) return bad('اسم المستخدم يجب أن يكون من 3 إلى 80 حرفاً، ويسمح بالحروف العربية أو الإنجليزية والأرقام و . _ - فقط.');
     if(password.length<10) return bad('كلمة المرور يجب ألا تقل عن 10 أحرف.');
     const salt=randomToken(18), hash=await hashPassword(password,salt);
     const r=await env.DB.prepare(`INSERT INTO admins(username,full_name,password_salt,password_hash,role,permissions,status,is_owner) SELECT ?,?,?,?,?,?,'active',1 WHERE NOT EXISTS (SELECT 1 FROM admins)`).bind(username,fullName,salt,hash,'super_admin',JSON.stringify(PERMISSIONS)).run();
@@ -274,7 +276,7 @@ async function api(request, env, path){
   if (path==='/api/auth/login' && request.method==='POST') {
     const count=await env.DB.prepare(`SELECT COUNT(*) total FROM admins`).first();
     if(Number(count?.total||0)===0) return bad('أنشئ حساب الـOwner أولاً.',409,'SETUP_REQUIRED');
-    const d=await readBody(request); const username=text(d.username,80), password=String(d.password||'');
+    const d=await readBody(request); const username=normalizeUsername(d.username).slice(0,80), password=String(d.password||'');
     if (!username || !password) return bad('أدخل اسم المستخدم وكلمة المرور.');
     const adminRow=await env.DB.prepare(`SELECT * FROM admins WHERE username=? COLLATE NOCASE`).bind(username).first();
     if (!adminRow || adminRow.status!=='active') return bad('اسم المستخدم أو كلمة المرور غير صحيحة.',401,'INVALID_CREDENTIALS');
@@ -439,11 +441,11 @@ async function api(request, env, path){
     const denied=forbidUnless(admin,'admins.view');if(denied)return denied;const {results}=await env.DB.prepare(`SELECT id,username,full_name,role,permissions,status,last_login_at,created_at,is_owner FROM admins ORDER BY id ASC`).all();return ok({items:results.map(publicAdmin)});
   }
   if(path==='/api/admins'&&request.method==='POST'){
-    const denied=forbidUnless(admin,'admins.manage');if(denied)return denied;const d=await readBody(request),username=text(d.username,80),fullName=text(d.full_name,160),password=String(d.password||''),requestedRole=d.role==='owner'?'viewer':d.role,role=ROLE_PRESETS[requestedRole]?requestedRole:(requestedRole==='custom'?'custom':'viewer');if(!/^[A-Za-z0-9._-]{3,80}$/.test(username))return bad('اسم المستخدم يجب أن يكون 3 أحرف على الأقل ويحتوي على حروف أو أرقام فقط.');if(!fullName)return bad('اسم المسؤول مطلوب.');if(password.length<10)return bad('كلمة المرور يجب ألا تقل عن 10 أحرف.');const salt=randomToken(18),hash=await hashPassword(password,salt),permissions=normalizePermissions(role,d.permissions);try{const r=await env.DB.prepare(`INSERT INTO admins(username,full_name,password_salt,password_hash,role,permissions,status) VALUES(?,?,?,?,?,?,?)`).bind(username,fullName,salt,hash,role,JSON.stringify(permissions),d.status==='suspended'?'suspended':'active').run();await log(env,admin,'Admin Created','admin',r.meta.last_row_id,username);return ok({id:r.meta.last_row_id},201);}catch(err){if(String(err.message).includes('UNIQUE'))return bad('اسم المستخدم مستخدم بالفعل.',409,'DUPLICATE_USERNAME');throw err;}
+    const denied=forbidUnless(admin,'admins.manage');if(denied)return denied;const d=await readBody(request),username=normalizeUsername(d.username).slice(0,80),fullName=text(d.full_name,160),password=String(d.password||''),requestedRole=d.role==='owner'?'viewer':d.role,role=ROLE_PRESETS[requestedRole]?requestedRole:(requestedRole==='custom'?'custom':'viewer');if(!validUsername(username))return bad('اسم المستخدم يجب أن يكون من 3 إلى 80 حرفاً، ويسمح بالحروف العربية أو الإنجليزية والأرقام و . _ - فقط.');if(!fullName)return bad('اسم المسؤول مطلوب.');if(password.length<10)return bad('كلمة المرور يجب ألا تقل عن 10 أحرف.');const salt=randomToken(18),hash=await hashPassword(password,salt),permissions=normalizePermissions(role,d.permissions);try{const r=await env.DB.prepare(`INSERT INTO admins(username,full_name,password_salt,password_hash,role,permissions,status) VALUES(?,?,?,?,?,?,?)`).bind(username,fullName,salt,hash,role,JSON.stringify(permissions),d.status==='suspended'?'suspended':'active').run();await log(env,admin,'Admin Created','admin',r.meta.last_row_id,username);return ok({id:r.meta.last_row_id},201);}catch(err){if(String(err.message).includes('UNIQUE'))return bad('اسم المستخدم مستخدم بالفعل.',409,'DUPLICATE_USERNAME');throw err;}
   }
   const adminMatch=path.match(/^\/api\/admins\/(\d+)$/);
   if(adminMatch&&request.method==='PUT'){
-    const denied=forbidUnless(admin,'admins.manage');if(denied)return denied;const id=Number(adminMatch[1]),d=await readBody(request),target=await env.DB.prepare(`SELECT * FROM admins WHERE id=?`).bind(id).first();if(!target)return bad('المسؤول غير موجود.',404,'NOT_FOUND');const username=text(d.username,80),fullName=text(d.full_name,160),requestedRole=(d.role==='owner'?'super_admin':d.role),role=Number(target.is_owner||0)===1?'super_admin':(ROLE_PRESETS[requestedRole]?requestedRole:(requestedRole==='custom'?'custom':target.role)),status=Number(target.is_owner||0)===1?'active':(d.status==='suspended'?'suspended':'active'),permissions=normalizePermissions(role,d.permissions);if(!/^[A-Za-z0-9._-]{3,80}$/.test(username)||!fullName)return bad('بيانات المسؤول غير صحيحة.');if(id===admin.id&&status!=='active')return bad('لا يمكنك تعليق حسابك الحالي.');if(Number(target.is_owner||0)===1&&(status!=='active'||role!=='super_admin'))return bad('لا يمكن تغيير دور الـOwner أو إيقاف حسابه.');if(target.role==='super_admin'&&(role!=='super_admin'||status!=='active')){const c=await env.DB.prepare(`SELECT COUNT(*) total FROM admins WHERE role='super_admin' AND status='active'`).first();if(Number(c.total)<=1)return bad('يجب أن يظل هناك Super Admin نشط واحد على الأقل إذا كان هذا الدور مستخدماً.');}try{await env.DB.prepare(`UPDATE admins SET username=?,full_name=?,role=?,permissions=?,status=?,updated_at=CURRENT_TIMESTAMP WHERE id=?`).bind(username,fullName,role,JSON.stringify(permissions),status,id).run();if(status==='suspended')await env.DB.prepare(`DELETE FROM admin_sessions WHERE admin_id=?`).bind(id).run();await log(env,admin,'Admin Updated','admin',id,username);return ok();}catch(err){if(String(err.message).includes('UNIQUE'))return bad('اسم المستخدم مستخدم بالفعل.',409,'DUPLICATE_USERNAME');throw err;}
+    const denied=forbidUnless(admin,'admins.manage');if(denied)return denied;const id=Number(adminMatch[1]),d=await readBody(request),target=await env.DB.prepare(`SELECT * FROM admins WHERE id=?`).bind(id).first();if(!target)return bad('المسؤول غير موجود.',404,'NOT_FOUND');const username=normalizeUsername(d.username).slice(0,80),fullName=text(d.full_name,160),requestedRole=(d.role==='owner'?'super_admin':d.role),role=Number(target.is_owner||0)===1?'super_admin':(ROLE_PRESETS[requestedRole]?requestedRole:(requestedRole==='custom'?'custom':target.role)),status=Number(target.is_owner||0)===1?'active':(d.status==='suspended'?'suspended':'active'),permissions=normalizePermissions(role,d.permissions);if(!validUsername(username)||!fullName)return bad('بيانات المسؤول غير صحيحة. تأكد من الاسم واسم المستخدم.');if(id===admin.id&&status!=='active')return bad('لا يمكنك تعليق حسابك الحالي.');if(Number(target.is_owner||0)===1&&(status!=='active'||role!=='super_admin'))return bad('لا يمكن تغيير دور الـOwner أو إيقاف حسابه.');if(target.role==='super_admin'&&(role!=='super_admin'||status!=='active')){const c=await env.DB.prepare(`SELECT COUNT(*) total FROM admins WHERE role='super_admin' AND status='active'`).first();if(Number(c.total)<=1)return bad('يجب أن يظل هناك Super Admin نشط واحد على الأقل إذا كان هذا الدور مستخدماً.');}try{await env.DB.prepare(`UPDATE admins SET username=?,full_name=?,role=?,permissions=?,status=?,updated_at=CURRENT_TIMESTAMP WHERE id=?`).bind(username,fullName,role,JSON.stringify(permissions),status,id).run();if(status==='suspended')await env.DB.prepare(`DELETE FROM admin_sessions WHERE admin_id=?`).bind(id).run();await log(env,admin,'Admin Updated','admin',id,username);return ok();}catch(err){if(String(err.message).includes('UNIQUE'))return bad('اسم المستخدم مستخدم بالفعل.',409,'DUPLICATE_USERNAME');throw err;}
   }
   const resetMatch=path.match(/^\/api\/admins\/(\d+)\/reset-password$/);
   if(resetMatch&&request.method==='POST'){
