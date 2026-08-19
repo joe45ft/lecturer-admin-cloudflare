@@ -1,5 +1,6 @@
 const SESSION_SECONDS = 60 * 60 * 12;
-const PASSWORD_ITERATIONS = 120000;
+// Cloudflare Workers currently rejects PBKDF2 iteration counts above 100,000.
+const PASSWORD_ITERATIONS = 100000;
 const MAX_BODY_BYTES = 64 * 1024;
 
 const PERMISSIONS = [
