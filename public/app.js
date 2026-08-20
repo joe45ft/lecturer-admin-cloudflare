@@ -1,6 +1,6 @@
 const $=s=>document.querySelector(s), $$=s=>[...document.querySelectorAll(s)];
 const PAGE_SIZE=10;
-const state={auth:null,csrf:'',settings:{currency:'EGP'},lecturers:[],students:[],enrollments:[],payments:[],admins:[],adminMeta:null,dashboard:null,archived:{lecturers:[],students:[]},outstanding:{enrollments:[],lecturers:[]},currentPage:'dashboard',autoRefresh:true,refreshTimer:null,refreshing:false,lastRefresh:null,pages:{lecturers:1,students:1,enrollments:1,payments:1,archived:1},lastReceipt:null};
+const state={auth:null,csrf:'',settings:{currency:'EGP'},lecturers:[],students:[],enrollments:[],payments:[],admins:[],adminMeta:null,dashboard:null,archived:{lecturers:[],students:[]},outstanding:{enrollments:[],lecturers:[]},currentPage:'dashboard',autoRefresh:true,refreshTimer:null,refreshing:false,lastRefresh:null,pages:{lecturers:1,students:1,enrollments:1,payments:1,archived:1},lastReceipt:null,theme:(document.documentElement.dataset.theme||'light')};
 const PAGE_INFO={dashboard:['الرئيسية','نظرة عامة على المنصة'],lecturers:['المحاضرون','إدارة المحاضرين والاشتراكات'],students:['الطلاب','إدارة بيانات الطلاب'],enrollments:['التسجيلات','ربط الطلاب بالمحاضرين'],payments:['المدفوعات','الإيصالات والحركات المالية'],outstanding:['المتأخرات','رسوم الطلاب والاشتراكات المستحقة'],archived:['الأرشيف','استرجاع العناصر والحذف المخصص'],finance:['المالية','ملخص الإيرادات'],admins:['المسؤولون والصلاحيات','إدارة حسابات الإدارة والتحكم في الوصول'],activity:['سجل النشاط','تتبع العمليات الإدارية'],settings:['الإعدادات','إعدادات المنصة والأسعار الافتراضية']};
 const ROLE_NAMES={owner:'Owner',super_admin:'Super Admin',manager:'Manager',finance:'Finance Admin',data_entry:'Data Entry',viewer:'Viewer',custom:'Custom'};
 const PERM_NAMES={'dashboard.view':'عرض الرئيسية','lecturers.view':'عرض المحاضرين','lecturers.create':'إضافة محاضر','lecturers.edit':'تعديل محاضر','lecturers.archive':'أرشفة/استرجاع محاضر','lecturers.delete':'حذف محاضر نهائيًا (Owner)','subscriptions.renew':'تجديد اشتراك','students.view':'عرض الطلاب','students.create':'إضافة طالب','students.edit':'تعديل طالب','students.archive':'أرشفة/استرجاع طالب','students.delete':'حذف طالب نهائيًا (Owner)','enrollments.view':'عرض التسجيلات','enrollments.create':'إضافة تسجيل','enrollments.cancel':'إلغاء تسجيل','payments.view':'عرض المدفوعات','payments.create':'تسجيل دفعات','finance.view':'عرض المالية','settings.view':'عرض الإعدادات','settings.manage':'تعديل الإعدادات','activity.view':'عرض سجل النشاط','admins.view':'عرض المسؤولين','admins.manage':'إدارة المسؤولين'};
@@ -24,6 +24,26 @@ function showLogin(){stopAutoRefresh();hideAuthViews();$('#loginView').classList
 function showApp(){hideAuthViews();$('#appView').classList.remove('hidden');}
 function applyPermissions(){$$('[data-permission]').forEach(el=>{el.hidden=!has(el.dataset.permission);});$('#adminIdentity').textContent=`${state.auth.full_name} · ${ROLE_NAMES[state.auth.role]||state.auth.role}`;const first=$('#nav button:not([hidden])');if(!$('#nav button.active:not([hidden])')&&first)navigate(first.dataset.page);}
 function navigate(page){const btn=$(`#nav [data-page="${page}"]`);if(!btn||btn.hidden)return;state.currentPage=page;$$('#nav [data-page]').forEach(x=>x.classList.toggle('active',x===btn));$$('.page').forEach(x=>x.classList.toggle('active',x.id===page));$('#pageTitle').textContent=PAGE_INFO[page]?.[0]||page;$('#pageSubtitle').textContent=PAGE_INFO[page]?.[1]||'';$('#sidebar').classList.remove('open');ensurePageLoaded(page);}
+
+
+function syncThemeUi(){
+  const theme=document.documentElement.dataset.theme==='dark'?'dark':'light';
+  state.theme=theme;
+  const dark=theme==='dark',btn=$('#themeToggleBtn'),icon=$('#themeToggleIcon'),text=$('#themeToggleText');
+  if(btn){btn.setAttribute('aria-pressed',String(dark));btn.setAttribute('aria-label',dark?'تفعيل الوضع الفاتح':'تفعيل الوضع الداكن');btn.title=dark?'التحويل إلى الوضع الفاتح':'التحويل إلى الوضع الداكن';}
+  if(icon)icon.className=`fi ${dark?'fi-rr-sun':'fi-rr-moon'}`;
+  if(text)text.textContent=dark?'الوضع الفاتح':'الوضع الداكن';
+  const meta=document.querySelector('meta[name="theme-color"]');
+  if(meta)meta.content=dark?'#0b1120':'#f5f7fb';
+}
+function applyTheme(theme,{persist=true}={}){
+  const next=theme==='dark'?'dark':'light';
+  document.documentElement.dataset.theme=next;
+  document.documentElement.style.colorScheme=next;
+  if(persist){try{localStorage.setItem('lecturer-admin:theme',next);}catch{}}
+  syncThemeUi();
+}
+function toggleTheme(){applyTheme((document.documentElement.dataset.theme==='dark')?'light':'dark');}
 
 function activeDialogOpen(){return !!document.querySelector('dialog[open]');}
 function refreshTimeText(date=new Date()){return new Intl.DateTimeFormat('ar-EG',{hour:'2-digit',minute:'2-digit',second:'2-digit'}).format(date);}
@@ -86,6 +106,7 @@ $('#loginForm').addEventListener('submit',async e=>{e.preventDefault();setBusy(e
 $('#logoutBtn').onclick=async()=>{try{await api('/api/auth/logout',{method:'POST',body:'{}'});}catch{}showLogin();};
 $('#changePasswordBtn').onclick=()=>{$('#changePasswordForm').reset();openModal('changePasswordModal');};
 $('#menuBtn').onclick=()=>$('#sidebar').classList.toggle('open');
+$('#themeToggleBtn')?.addEventListener('click',toggleTheme);
 $('#nav').addEventListener('click',e=>{const b=e.target.closest('[data-page]');if(b)navigate(b.dataset.page);});
 $('#refreshBtn')?.addEventListener('click',()=>refreshCurrentPage());
 $('#autoRefreshToggle')?.addEventListener('change',e=>{state.autoRefresh=e.target.checked;try{localStorage.setItem('lecturer-admin:auto-refresh',state.autoRefresh?'on':'off');}catch{}if(state.autoRefresh){startAutoRefresh();updateRefreshStatus(state.lastRefresh?`آخر تحديث ${refreshTimeText(state.lastRefresh)}`:'التحديث التلقائي مفعل');}else{stopAutoRefresh();updateRefreshStatus('التحديث التلقائي متوقف');}});
@@ -120,4 +141,4 @@ document.body.addEventListener('click',async e=>{const goto=e.target.closest('[d
 
 $('#retrySystemBtn').addEventListener('click',()=>boot());
 $$('[data-system-check]').forEach(btn=>btn.addEventListener('click',async()=>{try{const r=await api('/api/system/diagnostics'),failed=Object.entries(r.checks||{}).filter(([,v])=>!v.ok);if(!failed.length){if(state.auth){toast('فحص النظام ناجح.');}else showSystemError({message:'فحص النظام ناجح. قاعدة D1 والتشفير يعملان بشكل صحيح.',code:'SYSTEM_OK',stage:'ready',detail:'كل اختبارات D1 وCrypto نجحت.'});}else{const [name,v]=failed[0];showSystemError({message:'اكتشف فحص النظام مشكلة.',code:'DIAGNOSTIC_FAILED',stage:name,detail:v.detail||'Unknown'});}}catch(err){showSystemError(err);}}));
-try{state.autoRefresh=localStorage.getItem('lecturer-admin:auto-refresh')!=='off';}catch{state.autoRefresh=true;}syncAutoRefreshUi();boot();
+try{state.autoRefresh=localStorage.getItem('lecturer-admin:auto-refresh')!=='off';}catch{state.autoRefresh=true;}syncAutoRefreshUi();syncThemeUi();boot();

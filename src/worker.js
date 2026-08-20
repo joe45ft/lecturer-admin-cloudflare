@@ -335,14 +335,14 @@ async function ensureDatabaseSchema(env){
 async function api(request, env, path){
   if (path==='/api/system/health' && request.method==='GET') {
     if (!env?.DB || typeof env.DB.prepare !== 'function') {
-      return bad('قاعدة D1 غير مربوطة بالـWorker باسم DB.',503,'DB_NOT_CONFIGURED',{stage:'binding',version:'2.2.0'});
+      return bad('قاعدة D1 غير مربوطة بالـWorker باسم DB.',503,'DB_NOT_CONFIGURED',{stage:'binding',version:'2.2.2'});
     }
     try {
       await ensureDatabaseSchema(env);
       const adminCount = await env.DB.prepare(`SELECT COUNT(*) total FROM admins`).first();
-      return ok({ database:'ready', schema:'ready', stage:'ready', admin_count:Number(adminCount?.total||0), setup_required:Number(adminCount?.total||0)===0, version:'2.2.0' });
+      return ok({ database:'ready', schema:'ready', stage:'ready', admin_count:Number(adminCount?.total||0), setup_required:Number(adminCount?.total||0)===0, version:'2.2.2' });
     } catch(err) {
-      return bad('قاعدة D1 مرتبطة، لكن تهيئة الجداول لم تكتمل.',503,err?.code||'DB_HEALTH_FAILED',{stage:err?.stage||schemaStatus.stage||'unknown',detail:safeDbDetail(err?.dbDetail||err?.message||schemaStatus.detail),version:'2.2.0'});
+      return bad('قاعدة D1 مرتبطة، لكن تهيئة الجداول لم تكتمل.',503,err?.code||'DB_HEALTH_FAILED',{stage:err?.stage||schemaStatus.stage||'unknown',detail:safeDbDetail(err?.dbDetail||err?.message||schemaStatus.detail),version:'2.2.2'});
     }
   }
 
@@ -358,7 +358,7 @@ async function api(request, env, path){
     await check('activity_logs',()=>env.DB.prepare('SELECT COUNT(*) total FROM activity_logs').first());
     await check('crypto',async()=>{const salt='diagnostic-salt'; await hashPassword('DiagnosticPassword123!',salt);});
     const allOk=Object.values(checks).every(x=>x.ok);
-    return json({ok:allOk,version:'2.2.0',checks},allOk?200:503);
+    return json({ok:allOk,version:'2.2.2',checks},allOk?200:503);
   }
 
   if (path==='/api/setup/status' && request.method==='GET') {

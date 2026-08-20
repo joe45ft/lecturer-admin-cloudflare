@@ -4,14 +4,27 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <meta name="robots" content="noindex,nofollow,noarchive" />
-  <meta name="color-scheme" content="light" />
+  <meta name="color-scheme" content="light dark" />
   <title>Lecturer Manager</title>
+  <script>
+    (()=>{
+      try{
+        const saved=localStorage.getItem('lecturer-admin:theme');
+        const theme=(saved==='dark'||saved==='light')?saved:(window.matchMedia?.('(prefers-color-scheme: dark)').matches?'dark':'light');
+        document.documentElement.dataset.theme=theme;
+      }catch{ document.documentElement.dataset.theme='light'; }
+    })();
+  </script>
   <link rel="preconnect" href="https://cdn-uicons.flaticon.com" crossorigin />
   <link rel="stylesheet" href="https://cdn-uicons.flaticon.com/4.0.0/uicons-regular-rounded/css/uicons-regular-rounded.css" />
   <link rel="stylesheet" href="/style.css" />
 </head>
 <body>
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
+  <button id="themeToggleBtn" class="theme-toggle-btn" type="button" aria-label="تفعيل الوضع الداكن" aria-pressed="false" title="تغيير مظهر المنصة">
+    <i id="themeToggleIcon" class="fi fi-rr-moon" aria-hidden="true"></i>
+    <span id="themeToggleText">الوضع الداكن</span>
+  </button>
 
 
   <section id="systemView" class="login-shell hidden" aria-labelledby="systemTitle">
@@ -26,7 +39,7 @@
         <div><strong>التفاصيل:</strong> <code id="systemDetail">-</code></div>
       </div>
       <button id="retrySystemBtn" class="btn primary wide" type="button">إعادة الفحص</button>
-      <small class="muted">نسخة v2.2.0 لا تحتاج ADMIN_USERNAME أو ADMIN_PASSWORD أو SESSION_SECRET.</small>
+      <small class="muted">نسخة v2.2.2 لا تحتاج ADMIN_USERNAME أو ADMIN_PASSWORD أو SESSION_SECRET.</small>
     </div>
   </section>
 
