@@ -172,6 +172,15 @@
           <label>أيام التنبيه قبل انتهاء الاشتراك<input name="subscription_warning_days" type="number" min="1" max="60" /></label>
           <div class="full settings-actions"><button class="btn primary" data-permission="settings.manage">حفظ الإعدادات</button><button type="button" class="btn" data-system-check><i class="fi fi-rr-stethoscope"></i><span>فحص النظام</span></button></div>
         </form>
+        <div class="panel danger-zone" data-permission="admins.manage">
+          <div class="panel-head">
+            <div><h3><i class="fi fi-rr-triangle-warning" aria-hidden="true"></i> منطقة الخطر</h3><p class="muted">متاحة للـOwner فقط. استخدمها فقط إذا كنت تريد بدء المنصة من الصفر.</p></div>
+          </div>
+          <div class="danger-reset-row">
+            <div><strong>مسح كل بيانات المنصة</strong><p>يمسح المحاضرين والطلاب والتسجيلات والمدفوعات والاشتراكات وباقي حسابات الإدارة وسجل النشاط. يتم الاحتفاظ بحساب الـOwner الحالي فقط وإعادة الإعدادات للقيم الافتراضية.</p></div>
+            <button type="button" id="openResetAllBtn" class="btn danger-solid"><i class="fi fi-rr-trash"></i><span>مسح كل البيانات</span></button>
+          </div>
+        </div>
       </section>
     </main>
   </div>
@@ -207,6 +216,8 @@
     <div class="modal-actions"><button type="button" class="btn ghost" data-close>إلغاء</button><button class="btn primary">حفظ المسؤول</button></div></form></dialog>
 
   <dialog id="resetPasswordModal"><form id="resetPasswordForm" class="modal-form"><div class="modal-head"><h3>إعادة تعيين كلمة المرور</h3><button type="button" class="icon-btn" data-close aria-label="إغلاق">×</button></div><input type="hidden" name="admin_id" /><label>كلمة المرور الجديدة<input name="password" type="password" minlength="10" required autocomplete="new-password" /></label><div class="modal-actions"><button type="button" class="btn ghost" data-close>إلغاء</button><button class="btn primary">تغيير</button></div></form></dialog>
+
+  <dialog id="resetAllDataModal"><form id="resetAllDataForm" class="modal-form"><div class="modal-head"><h3>مسح كل بيانات المنصة</h3><button type="button" class="icon-btn" data-close aria-label="إغلاق">×</button></div><div class="danger-box reset-warning"><strong>تحذير: هذه العملية لا يمكن التراجع عنها.</strong><p>سيتم حذف كل المحاضرين والطلاب والتسجيلات والمدفوعات والاشتراكات وباقي حسابات الإدارة وسجل النشاط. سيظل حساب الـOwner الحالي فقط.</p></div><label>كلمة مرور الـOwner الحالية<input name="current_password" type="password" required autocomplete="current-password" /></label><label>للتأكيد اكتب <strong dir="ltr">RESET ALL DATA</strong><input name="confirm_text" autocomplete="off" required dir="ltr" placeholder="RESET ALL DATA" /></label><div class="modal-actions"><button type="button" class="btn ghost" data-close>إلغاء</button><button type="submit" class="btn danger-solid"><i class="fi fi-rr-trash"></i><span>مسح كل البيانات نهائيًا</span></button></div></form></dialog>
 
   <dialog id="changePasswordModal"><form id="changePasswordForm" class="modal-form"><div class="modal-head"><h3>تغيير كلمة المرور</h3><button type="button" class="icon-btn" data-close aria-label="إغلاق">×</button></div><label>كلمة المرور الحالية<input name="current_password" type="password" required autocomplete="current-password" /></label><label>كلمة المرور الجديدة<input name="new_password" type="password" minlength="10" required autocomplete="new-password" /></label><div class="modal-actions"><button type="button" class="btn ghost" data-close>إلغاء</button><button class="btn primary">تغيير</button></div></form></dialog>
 

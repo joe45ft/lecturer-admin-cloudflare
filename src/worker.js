@@ -451,6 +451,56 @@ async function api(request, env, path){
     return ok();
   }
 
+  if(path==='/api/system/reset-all' && request.method==='POST'){
+    if(admin.role!=='owner') return bad('هذه العملية متاحة للـOwner فقط.',403,'OWNER_ONLY');
+    const d=await readBody(request),confirmText=String(d.confirm_text||'').trim(),currentPassword=String(d.current_password||'');
+    if(confirmText!=='RESET ALL DATA') return bad('اكتب RESET ALL DATA بالضبط لتأكيد مسح كل البيانات.',400,'RESET_CONFIRMATION_REQUIRED');
+    if(!currentPassword) return bad('أدخل كلمة مرور الـOwner الحالية.',400,'OWNER_PASSWORD_REQUIRED');
+
+    const ownerRow=await env.DB.prepare(`SELECT * FROM admins WHERE id=? AND is_owner=1 AND status='active'`).bind(admin.id).first();
+    if(!ownerRow) return bad('تعذر التحقق من حساب الـOwner الحالي.',403,'OWNER_VERIFICATION_FAILED');
+    const candidate=await hashPassword(currentPassword,ownerRow.password_salt);
+    if(!constantTimeEqual(candidate,ownerRow.password_hash)) return bad('كلمة مرور الـOwner غير صحيحة.',400,'INVALID_PASSWORD');
+
+    const [lecturers,students,enrollments,subscriptions,payments,otherAdmins,activity]=await Promise.all([
+      env.DB.prepare(`SELECT COUNT(*) total FROM lecturers`).first(),
+      env.DB.prepare(`SELECT COUNT(*) total FROM students`).first(),
+      env.DB.prepare(`SELECT COUNT(*) total FROM enrollments`).first(),
+      env.DB.prepare(`SELECT COUNT(*) total FROM lecturer_subscriptions`).first(),
+      env.DB.prepare(`SELECT COUNT(*) total FROM payments`).first(),
+      env.DB.prepare(`SELECT COUNT(*) total FROM admins WHERE id<>?`).bind(admin.id).first(),
+      env.DB.prepare(`SELECT COUNT(*) total FROM activity_logs`).first()
+    ]);
+
+    const defaults=[
+      ['platform_name','Lecturer Manager'],['currency','EGP'],['default_monthly_fee','500'],
+      ['default_student_fee','200'],['subscription_warning_days','7'],
+      ['payment_methods','["Cash","InstaPay","Vodafone Cash","Bank Transfer","Card","Other"]']
+    ];
+    const statements=[
+      env.DB.prepare(`DELETE FROM payments`),
+      env.DB.prepare(`DELETE FROM lecturer_subscriptions`),
+      env.DB.prepare(`DELETE FROM enrollments`),
+      env.DB.prepare(`DELETE FROM students`),
+      env.DB.prepare(`DELETE FROM lecturers`),
+      env.DB.prepare(`DELETE FROM activity_logs`),
+      env.DB.prepare(`DELETE FROM admin_sessions WHERE id<>?`).bind(admin.session_id),
+      env.DB.prepare(`DELETE FROM admins WHERE id<>?`).bind(admin.id),
+      env.DB.prepare(`DELETE FROM settings`),
+      env.DB.prepare(`UPDATE admins SET failed_login_count=0,locked_until=NULL,status='active',updated_at=CURRENT_TIMESTAMP WHERE id=?`).bind(admin.id)
+    ];
+    for(const [key,value] of defaults) statements.push(env.DB.prepare(`INSERT INTO settings(key,value,updated_at) VALUES(?,?,CURRENT_TIMESTAMP)`).bind(key,value));
+    await env.DB.batch(statements);
+    let sequencesReset=true;
+    try{await env.DB.prepare(`DELETE FROM sqlite_sequence WHERE name IN ('lecturers','students','enrollments','lecturer_subscriptions','payments','activity_logs')`).run();}catch{sequencesReset=false;}
+    return ok({
+      message:'تم مسح جميع بيانات المنصة مع الاحتفاظ بحساب الـOwner الحالي فقط.',
+      sequences_reset:sequencesReset,
+      retained_owner:{id:admin.id,username:admin.username,full_name:admin.full_name},
+      deleted:{lecturers:num(lecturers?.total),students:num(students?.total),enrollments:num(enrollments?.total),subscriptions:num(subscriptions?.total),payments:num(payments?.total),admins:num(otherAdmins?.total),activity_logs:num(activity?.total)}
+    });
+  }
+
   if(path==='/api/dashboard' && request.method==='GET'){
     const denied=forbidUnless(admin,'dashboard.view'); if(denied)return denied;
     const warningDays=Math.max(1,Math.min(60,num((await settingsMap(env)).subscription_warning_days,7)));

@@ -69,3 +69,17 @@ nav button:hover .fi,nav button.active .fi{color:#fff}
 @media(max-width:900px){.profile-cards{grid-template-columns:repeat(2,minmax(0,1fr))}.global-search-wrap{max-width:none;width:100%}.table-tools{justify-content:flex-start;width:100%}.table-tools input,.table-tools select{width:100%;min-width:0}.pager{align-items:flex-start;flex-direction:column}}
 @media(max-width:600px){.profile-cards,.profile-grid,.receipt-grid{grid-template-columns:1fr}.receipt-sheet{padding:16px}.profile-hero{flex-direction:column}.modal-form.xwide{width:100%}}
 @media print{body *{visibility:hidden!important}.receipt-sheet,.receipt-sheet *{visibility:visible!important}.receipt-sheet{position:absolute;inset:0;width:100%;border:0;border-radius:0;padding:24px}.no-print{display:none!important}body{background:#fff}}
+
+
+/* v2.2.1 — Owner-only full platform reset */
+.danger-zone{border-color:#fda29b;background:linear-gradient(180deg,#fff 0%,#fff8f7 100%)}
+.danger-zone .panel-head h3,.danger-zone .panel-head h3 .fi{color:var(--danger)}
+.danger-reset-row{display:flex;align-items:center;justify-content:space-between;gap:22px;padding:4px 0}
+.danger-reset-row strong{display:block;margin-bottom:6px;color:#912018}
+.danger-reset-row p{margin:0;color:#7a271a;line-height:1.65;max-width:780px}
+.btn.danger-solid{background:var(--danger);border-color:var(--danger);color:#fff}
+.btn.danger-solid:hover{background:#b42318;border-color:#b42318}
+.reset-warning{border-color:#fda29b;background:#fff1f0;color:#7a271a}
+.reset-warning strong{color:#912018}
+.reset-warning p{margin-bottom:0;line-height:1.65}
+@media(max-width:800px){.danger-reset-row{align-items:stretch;flex-direction:column}.danger-reset-row .btn{width:100%}}
