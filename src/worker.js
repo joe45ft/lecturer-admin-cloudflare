@@ -5,8 +5,8 @@ const MAX_BODY_BYTES = 64 * 1024;
 
 const PERMISSIONS = [
   'dashboard.view',
-  'lecturers.view','lecturers.create','lecturers.edit','lecturers.archive','subscriptions.renew',
-  'students.view','students.create','students.edit','students.archive',
+  'lecturers.view','lecturers.create','lecturers.edit','lecturers.archive','lecturers.delete','subscriptions.renew',
+  'students.view','students.create','students.edit','students.archive','students.delete',
   'enrollments.view','enrollments.create','enrollments.cancel',
   'payments.view','payments.create','finance.view',
   'settings.view','settings.manage','activity.view','admins.view','admins.manage'
@@ -14,7 +14,7 @@ const PERMISSIONS = [
 
 const ROLE_PRESETS = {
   owner: [...PERMISSIONS],
-  super_admin: [...PERMISSIONS],
+  super_admin: PERMISSIONS.filter(p => !['lecturers.delete','students.delete'].includes(p)),
   manager: PERMISSIONS.filter(p => !['admins.view','admins.manage','settings.manage'].includes(p)),
   finance: ['dashboard.view','lecturers.view','students.view','enrollments.view','payments.view','payments.create','finance.view','subscriptions.renew'],
   data_entry: ['dashboard.view','lecturers.view','lecturers.create','lecturers.edit','students.view','students.create','students.edit','enrollments.view','enrollments.create','payments.view','payments.create'],
@@ -76,11 +76,12 @@ function normalizePermissions(role, raw){
 }
 function parsePermissions(row){
   if (!row) return [];
-  if (row.role === 'owner' || row.role === 'super_admin') return [...PERMISSIONS];
+  if (row.role === 'owner') return [...PERMISSIONS];
+  if (row.role === 'super_admin') return [...ROLE_PRESETS.super_admin];
   try { const custom=JSON.parse(row.permissions||'[]'); return normalizePermissions(row.role, custom); } catch { return normalizePermissions(row.role, []); }
 }
 function publicAdmin(row){ const role=Number(row?.is_owner||0)===1?'owner':row.role; return { id:row.id, username:row.username, full_name:row.full_name, role, permissions:role==='owner'?[...PERMISSIONS]:parsePermissions(row), status:row.status, last_login_at:row.last_login_at, created_at:row.created_at }; }
-function hasPermission(admin, permission){ if (!admin) return false; if (permission==='admins.manage') return admin.role==='owner'; return admin.role==='owner' || admin.role==='super_admin' || admin.permissions?.includes(permission); }
+function hasPermission(admin, permission){ if (!admin) return false; if (permission==='admins.manage' || permission==='lecturers.delete' || permission==='students.delete') return admin.role==='owner'; return admin.role==='owner' || admin.role==='super_admin' || admin.permissions?.includes(permission); }
 function forbidUnless(admin, permission){ return hasPermission(admin,permission) ? null : bad('ليس لديك صلاحية لتنفيذ هذه العملية.',403,'FORBIDDEN'); }
 
 async function createDbSession(env, adminId){
@@ -334,14 +335,14 @@ async function ensureDatabaseSchema(env){
 async function api(request, env, path){
   if (path==='/api/system/health' && request.method==='GET') {
     if (!env?.DB || typeof env.DB.prepare !== 'function') {
-      return bad('قاعدة D1 غير مربوطة بالـWorker باسم DB.',503,'DB_NOT_CONFIGURED',{stage:'binding',version:'2.1.1'});
+      return bad('قاعدة D1 غير مربوطة بالـWorker باسم DB.',503,'DB_NOT_CONFIGURED',{stage:'binding',version:'2.2.0'});
     }
     try {
       await ensureDatabaseSchema(env);
       const adminCount = await env.DB.prepare(`SELECT COUNT(*) total FROM admins`).first();
-      return ok({ database:'ready', schema:'ready', stage:'ready', admin_count:Number(adminCount?.total||0), setup_required:Number(adminCount?.total||0)===0, version:'2.1.1' });
+      return ok({ database:'ready', schema:'ready', stage:'ready', admin_count:Number(adminCount?.total||0), setup_required:Number(adminCount?.total||0)===0, version:'2.2.0' });
     } catch(err) {
-      return bad('قاعدة D1 مرتبطة، لكن تهيئة الجداول لم تكتمل.',503,err?.code||'DB_HEALTH_FAILED',{stage:err?.stage||schemaStatus.stage||'unknown',detail:safeDbDetail(err?.dbDetail||err?.message||schemaStatus.detail),version:'2.1.1'});
+      return bad('قاعدة D1 مرتبطة، لكن تهيئة الجداول لم تكتمل.',503,err?.code||'DB_HEALTH_FAILED',{stage:err?.stage||schemaStatus.stage||'unknown',detail:safeDbDetail(err?.dbDetail||err?.message||schemaStatus.detail),version:'2.2.0'});
     }
   }
 
@@ -357,7 +358,7 @@ async function api(request, env, path){
     await check('activity_logs',()=>env.DB.prepare('SELECT COUNT(*) total FROM activity_logs').first());
     await check('crypto',async()=>{const salt='diagnostic-salt'; await hashPassword('DiagnosticPassword123!',salt);});
     const allOk=Object.values(checks).every(x=>x.ok);
-    return json({ok:allOk,version:'2.1.1',checks},allOk?200:503);
+    return json({ok:allOk,version:'2.2.0',checks},allOk?200:503);
   }
 
   if (path==='/api/setup/status' && request.method==='GET') {
@@ -552,6 +553,89 @@ async function api(request, env, path){
   }
   if(path==='/api/payments/enrollment'&&request.method==='POST'){
     const denied=forbidUnless(admin,'payments.create');if(denied)return denied;const d=await readBody(request),enrollmentId=Number(d.enrollment_id),amount=num(d.amount);const e=await env.DB.prepare(`SELECT e.*,s.full_name student_name,l.full_name lecturer_name FROM enrollments e JOIN students s ON s.id=e.student_id JOIN lecturers l ON l.id=e.lecturer_id WHERE e.id=? AND e.status='active'`).bind(enrollmentId).first();if(!e)return bad('التسجيل غير موجود.',404,'NOT_FOUND');const paidRow=await env.DB.prepare(`SELECT COALESCE(SUM(amount),0) paid FROM payments WHERE enrollment_id=? AND payment_type='student_enrollment'`).bind(enrollmentId).first();const remaining=Math.max(0,num(e.required_fee)-num(paidRow.paid));if(amount<=0)return bad('أدخل مبلغاً أكبر من صفر.');if(amount>remaining)return bad(`المبلغ أكبر من المتبقي (${remaining}).`);const rec=receiptNo();await env.DB.batch([env.DB.prepare(`INSERT INTO payments(receipt_no,payment_type,lecturer_id,student_id,enrollment_id,amount,payment_method,reference,notes) VALUES(?,?,?,?,?,?,?,?,?)`).bind(rec,'student_enrollment',e.lecturer_id,e.student_id,enrollmentId,amount,text(d.payment_method,40)||'Cash',text(d.reference,160),text(d.notes,1000)),env.DB.prepare(`INSERT INTO activity_logs(action,entity_type,entity_id,details,admin_id,admin_name) VALUES('Student Payment Added','enrollment',?,?,?,?)`).bind(enrollmentId,String(amount),admin.id,admin.full_name)]);return ok({receipt_no:rec});
+  }
+
+
+  // v2.2 — rich profiles
+  const lecturerProfileMatch=path.match(/^\/api\/lecturers\/(\d+)\/profile$/);
+  if(lecturerProfileMatch&&request.method==='GET'){
+    const denied=forbidUnless(admin,'lecturers.view');if(denied)return denied;const id=Number(lecturerProfileMatch[1]);
+    const lecturer=await env.DB.prepare(`SELECT l.*,(SELECT COUNT(*) FROM enrollments e WHERE e.lecturer_id=l.id AND e.status='active') student_count,CASE WHEN l.status='suspended' THEN 'suspended' WHEN l.status='archived' THEN 'archived' WHEN l.subscription_end_date IS NULL THEN 'unpaid' WHEN date(l.subscription_end_date)<date('now') THEN 'expired' WHEN date(l.subscription_end_date)<=date('now','+7 day') THEN 'due_soon' ELSE 'active' END subscription_status FROM lecturers l WHERE l.id=?`).bind(id).first();
+    if(!lecturer)return bad('المحاضر غير موجود.',404,'NOT_FOUND');
+    const [students,subscriptions,payments]=await Promise.all([
+      hasPermission(admin,'enrollments.view')?env.DB.prepare(`SELECT e.id enrollment_id,e.enrollment_date,e.required_fee,e.status enrollment_status,s.id student_id,s.student_code,s.full_name,s.phone,s.status,COALESCE((SELECT SUM(p.amount) FROM payments p WHERE p.enrollment_id=e.id AND p.payment_type='student_enrollment'),0) paid_amount FROM enrollments e JOIN students s ON s.id=e.student_id WHERE e.lecturer_id=? ORDER BY e.id DESC LIMIT 200`).bind(id).all():Promise.resolve({results:[]}),
+      env.DB.prepare(`SELECT * FROM lecturer_subscriptions WHERE lecturer_id=? ORDER BY id DESC LIMIT 100`).bind(id).all(),
+      hasPermission(admin,'payments.view')?env.DB.prepare(`SELECT p.*,s.full_name student_name FROM payments p LEFT JOIN students s ON s.id=p.student_id WHERE p.lecturer_id=? ORDER BY p.id DESC LIMIT 200`).bind(id).all():Promise.resolve({results:[]})
+    ]);
+    const paidTotal=payments.results.reduce((a,x)=>a+num(x.amount),0);
+    return ok({lecturer,students:students.results.map(x=>({...x,remaining_amount:Math.max(0,num(x.required_fee)-num(x.paid_amount))})),subscriptions:subscriptions.results,payments:payments.results,summary:{payment_total:paidTotal}});
+  }
+  const studentProfileMatch=path.match(/^\/api\/students\/(\d+)\/profile$/);
+  if(studentProfileMatch&&request.method==='GET'){
+    const denied=forbidUnless(admin,'students.view');if(denied)return denied;const id=Number(studentProfileMatch[1]);
+    const student=await env.DB.prepare(`SELECT s.*,(SELECT COUNT(*) FROM enrollments e WHERE e.student_id=s.id AND e.status='active') lecturer_count,COALESCE((SELECT SUM(e.required_fee) FROM enrollments e WHERE e.student_id=s.id AND e.status='active'),0) total_required,COALESCE((SELECT SUM(p.amount) FROM payments p WHERE p.student_id=s.id AND p.payment_type='student_enrollment'),0) total_paid FROM students s WHERE s.id=?`).bind(id).first();
+    if(!student)return bad('الطالب غير موجود.',404,'NOT_FOUND');
+    const [enrollments,payments]=await Promise.all([
+      hasPermission(admin,'enrollments.view')?env.DB.prepare(`SELECT e.*,l.full_name lecturer_name,l.subject lecturer_subject,l.status lecturer_status,COALESCE((SELECT SUM(p.amount) FROM payments p WHERE p.enrollment_id=e.id AND p.payment_type='student_enrollment'),0) paid_amount FROM enrollments e JOIN lecturers l ON l.id=e.lecturer_id WHERE e.student_id=? ORDER BY e.id DESC LIMIT 200`).bind(id).all():Promise.resolve({results:[]}),
+      hasPermission(admin,'payments.view')?env.DB.prepare(`SELECT p.*,l.full_name lecturer_name FROM payments p LEFT JOIN lecturers l ON l.id=p.lecturer_id WHERE p.student_id=? ORDER BY p.id DESC LIMIT 200`).bind(id).all():Promise.resolve({results:[]})
+    ]);
+    return ok({student:{...student,remaining:Math.max(0,num(student.total_required)-num(student.total_paid))},enrollments:enrollments.results.map(x=>({...x,remaining_amount:Math.max(0,num(x.required_fee)-num(x.paid_amount)),payment_status:num(x.paid_amount)>=num(x.required_fee)?'paid':num(x.paid_amount)>0?'partial':'unpaid'})),payments:payments.results});
+  }
+
+  // v2.2 — receipt details for view/print
+  const paymentMatch=path.match(/^\/api\/payments\/(\d+)$/);
+  if(paymentMatch&&request.method==='GET'){
+    const denied=forbidUnless(admin,'payments.view');if(denied)return denied;const id=Number(paymentMatch[1]);
+    const payment=await env.DB.prepare(`SELECT p.*,l.full_name lecturer_name,l.subject lecturer_subject,s.full_name student_name,s.student_code FROM payments p LEFT JOIN lecturers l ON l.id=p.lecturer_id LEFT JOIN students s ON s.id=p.student_id WHERE p.id=?`).bind(id).first();
+    if(!payment)return bad('الإيصال غير موجود.',404,'NOT_FOUND');return ok({payment,platform:await settingsMap(env)});
+  }
+
+  // v2.2 — archive/restore
+  if(path==='/api/archived'&&request.method==='GET'){
+    const lecturers=hasPermission(admin,'lecturers.view')?(await env.DB.prepare(`SELECT l.*,(SELECT COUNT(*) FROM enrollments e WHERE e.lecturer_id=l.id) enrollment_count,(SELECT COUNT(*) FROM payments p WHERE p.lecturer_id=l.id) payment_count FROM lecturers l WHERE l.status='archived' ORDER BY l.updated_at DESC,l.id DESC`).all()).results:[];
+    const students=hasPermission(admin,'students.view')?(await env.DB.prepare(`SELECT s.*,(SELECT COUNT(*) FROM enrollments e WHERE e.student_id=s.id) enrollment_count,(SELECT COUNT(*) FROM payments p WHERE p.student_id=s.id) payment_count FROM students s WHERE s.status='archived' ORDER BY s.updated_at DESC,s.id DESC`).all()).results:[];
+    return ok({lecturers,students});
+  }
+  const lecturerRestoreMatch=path.match(/^\/api\/lecturers\/(\d+)\/restore$/);
+  if(lecturerRestoreMatch&&request.method==='POST'){
+    const denied=forbidUnless(admin,'lecturers.archive');if(denied)return denied;const id=Number(lecturerRestoreMatch[1]);const row=await env.DB.prepare(`SELECT id,full_name FROM lecturers WHERE id=? AND status='archived'`).bind(id).first();if(!row)return bad('المحاضر غير موجود في الأرشيف.',404,'NOT_FOUND');await env.DB.prepare(`UPDATE lecturers SET status='active',updated_at=CURRENT_TIMESTAMP WHERE id=?`).bind(id).run();await log(env,admin,'Lecturer Restored','lecturer',id,row.full_name);return ok();
+  }
+  const studentRestoreMatch=path.match(/^\/api\/students\/(\d+)\/restore$/);
+  if(studentRestoreMatch&&request.method==='POST'){
+    const denied=forbidUnless(admin,'students.archive');if(denied)return denied;const id=Number(studentRestoreMatch[1]);const row=await env.DB.prepare(`SELECT id,full_name FROM students WHERE id=? AND status='archived'`).bind(id).first();if(!row)return bad('الطالب غير موجود في الأرشيف.',404,'NOT_FOUND');await env.DB.prepare(`UPDATE students SET status='active',updated_at=CURRENT_TIMESTAMP WHERE id=?`).bind(id).run();await log(env,admin,'Student Restored','student',id,row.full_name);return ok();
+  }
+
+  // v2.2 — permanent delete is Owner-only and blocked if historical links exist.
+  const lecturerPermanentMatch=path.match(/^\/api\/lecturers\/(\d+)\/permanent$/);
+  if(lecturerPermanentMatch&&request.method==='DELETE'){
+    const denied=forbidUnless(admin,'lecturers.delete');if(denied)return denied;const id=Number(lecturerPermanentMatch[1]);const row=await env.DB.prepare(`SELECT id,full_name,status FROM lecturers WHERE id=?`).bind(id).first();if(!row)return bad('المحاضر غير موجود.',404,'NOT_FOUND');if(row.status!=='archived')return bad('يجب أرشفة المحاضر أولاً قبل الحذف النهائي.',409,'ARCHIVE_FIRST');
+    const links=await env.DB.prepare(`SELECT (SELECT COUNT(*) FROM enrollments WHERE lecturer_id=?) enrollments,(SELECT COUNT(*) FROM payments WHERE lecturer_id=?) payments,(SELECT COUNT(*) FROM lecturer_subscriptions WHERE lecturer_id=?) subscriptions`).bind(id,id,id).first();
+    if(num(links.enrollments)||num(links.payments)||num(links.subscriptions))return bad('لا يمكن الحذف النهائي لأن للمحاضر سجلات مرتبطة. اتركه في الأرشيف للحفاظ على التاريخ المالي.',409,'DELETE_BLOCKED_BY_HISTORY',{links});
+    await env.DB.prepare(`DELETE FROM lecturers WHERE id=?`).bind(id).run();await log(env,admin,'Lecturer Permanently Deleted','lecturer',id,row.full_name);return ok();
+  }
+  const studentPermanentMatch=path.match(/^\/api\/students\/(\d+)\/permanent$/);
+  if(studentPermanentMatch&&request.method==='DELETE'){
+    const denied=forbidUnless(admin,'students.delete');if(denied)return denied;const id=Number(studentPermanentMatch[1]);const row=await env.DB.prepare(`SELECT id,full_name,status FROM students WHERE id=?`).bind(id).first();if(!row)return bad('الطالب غير موجود.',404,'NOT_FOUND');if(row.status!=='archived')return bad('يجب أرشفة الطالب أولاً قبل الحذف النهائي.',409,'ARCHIVE_FIRST');
+    const links=await env.DB.prepare(`SELECT (SELECT COUNT(*) FROM enrollments WHERE student_id=?) enrollments,(SELECT COUNT(*) FROM payments WHERE student_id=?) payments`).bind(id,id).first();
+    if(num(links.enrollments)||num(links.payments))return bad('لا يمكن الحذف النهائي لأن للطالب سجلات مرتبطة. اتركه في الأرشيف للحفاظ على التاريخ المالي.',409,'DELETE_BLOCKED_BY_HISTORY',{links});
+    await env.DB.prepare(`DELETE FROM students WHERE id=?`).bind(id).run();await log(env,admin,'Student Permanently Deleted','student',id,row.full_name);return ok();
+  }
+
+  // v2.2 — global search
+  if(path==='/api/search'&&request.method==='GET'){
+    const q=text(new URL(request.url).searchParams.get('q'),100);if(q.length<2)return ok({lecturers:[],students:[],payments:[]});const like=`%${q}%`;
+    const [lecturers,students,payments]=await Promise.all([
+      hasPermission(admin,'lecturers.view')?env.DB.prepare(`SELECT id,full_name,phone,subject,status FROM lecturers WHERE full_name LIKE ? OR phone LIKE ? OR subject LIKE ? ORDER BY id DESC LIMIT 8`).bind(like,like,like).all():Promise.resolve({results:[]}),
+      hasPermission(admin,'students.view')?env.DB.prepare(`SELECT id,student_code,full_name,phone,parent_phone,status FROM students WHERE full_name LIKE ? OR student_code LIKE ? OR phone LIKE ? OR parent_phone LIKE ? ORDER BY id DESC LIMIT 8`).bind(like,like,like,like).all():Promise.resolve({results:[]}),
+      hasPermission(admin,'payments.view')?env.DB.prepare(`SELECT p.id,p.receipt_no,p.amount,p.payment_type,p.payment_date,l.full_name lecturer_name,s.full_name student_name FROM payments p LEFT JOIN lecturers l ON l.id=p.lecturer_id LEFT JOIN students s ON s.id=p.student_id WHERE p.receipt_no LIKE ? OR l.full_name LIKE ? OR s.full_name LIKE ? ORDER BY p.id DESC LIMIT 8`).bind(like,like,like).all():Promise.resolve({results:[]})
+    ]);return ok({lecturers:lecturers.results,students:students.results,payments:payments.results});
+  }
+
+  // v2.2 — outstanding workspace
+  if(path==='/api/outstanding'&&request.method==='GET'){
+    const enrollments=hasPermission(admin,'enrollments.view')?(await env.DB.prepare(`SELECT e.id,e.required_fee,e.enrollment_date,s.id student_id,s.student_code,s.full_name student_name,l.id lecturer_id,l.full_name lecturer_name,l.subject,COALESCE((SELECT SUM(p.amount) FROM payments p WHERE p.enrollment_id=e.id AND p.payment_type='student_enrollment'),0) paid_amount FROM enrollments e JOIN students s ON s.id=e.student_id JOIN lecturers l ON l.id=e.lecturer_id WHERE e.status='active' AND s.status!='archived' AND l.status!='archived' AND COALESCE((SELECT SUM(p.amount) FROM payments p WHERE p.enrollment_id=e.id AND p.payment_type='student_enrollment'),0)<e.required_fee ORDER BY (e.required_fee-COALESCE((SELECT SUM(p.amount) FROM payments p WHERE p.enrollment_id=e.id AND p.payment_type='student_enrollment'),0)) DESC LIMIT 500`).all()).results:[];
+    const lecturers=hasPermission(admin,'lecturers.view')?(await env.DB.prepare(`SELECT id,full_name,phone,subject,subscription_end_date,CASE WHEN subscription_end_date IS NULL THEN 'unpaid' WHEN date(subscription_end_date)<date('now') THEN 'expired' ELSE 'due_soon' END subscription_status FROM lecturers WHERE status='active' AND (subscription_end_date IS NULL OR date(subscription_end_date)<=date('now','+7 day')) ORDER BY CASE WHEN subscription_end_date IS NULL THEN 0 ELSE 1 END,subscription_end_date ASC LIMIT 500`).all()).results:[];
+    return ok({enrollments:enrollments.map(x=>({...x,remaining_amount:Math.max(0,num(x.required_fee)-num(x.paid_amount)),payment_status:num(x.paid_amount)>0?'partial':'unpaid'})),lecturers});
   }
 
   if(path==='/api/settings'&&request.method==='GET'){

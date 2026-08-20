@@ -26,7 +26,7 @@
         <div><strong>التفاصيل:</strong> <code id="systemDetail">-</code></div>
       </div>
       <button id="retrySystemBtn" class="btn primary wide" type="button">إعادة الفحص</button>
-      <small class="muted">نسخة v2.1.0 لا تحتاج ADMIN_USERNAME أو ADMIN_PASSWORD أو SESSION_SECRET.</small>
+      <small class="muted">نسخة v2.2.0 لا تحتاج ADMIN_USERNAME أو ADMIN_PASSWORD أو SESSION_SECRET.</small>
     </div>
   </section>
 
@@ -74,6 +74,8 @@
         <button data-page="students" data-permission="students.view"><i class="fi fi-rr-users-class" aria-hidden="true"></i><span>الطلاب</span></button>
         <button data-page="enrollments" data-permission="enrollments.view"><i class="fi fi-rr-clipboard-list-check" aria-hidden="true"></i><span>التسجيلات</span></button>
         <button data-page="payments" data-permission="payments.view"><i class="fi fi-rr-receipt" aria-hidden="true"></i><span>المدفوعات</span></button>
+        <button data-page="outstanding" data-permission="dashboard.view"><i class="fi fi-rr-exclamation" aria-hidden="true"></i><span>المتأخرات</span></button>
+        <button data-page="archived" data-permission="dashboard.view"><i class="fi fi-rr-archive" aria-hidden="true"></i><span>الأرشيف</span></button>
         <button data-page="finance" data-permission="finance.view"><i class="fi fi-rr-coins" aria-hidden="true"></i><span>المالية</span></button>
         <button data-page="admins" data-permission="admins.view"><i class="fi fi-rr-user-shield" aria-hidden="true"></i><span>المسؤولون والصلاحيات</span></button>
         <button data-page="activity" data-permission="activity.view"><i class="fi fi-rr-clock" aria-hidden="true"></i><span>سجل النشاط</span></button>
@@ -90,6 +92,11 @@
       <header class="topbar">
         <div class="title-row"><button id="menuBtn" class="icon-btn mobile-only" aria-label="فتح القائمة" aria-controls="sidebar"><i class="fi fi-rr-menu-burger" aria-hidden="true"></i></button><div><h2 id="pageTitle">الرئيسية</h2><p id="pageSubtitle">نظرة عامة على المنصة</p></div></div>
         <div class="topbar-tools">
+          <div class="global-search-wrap">
+            <label class="sr-only" for="globalSearch">بحث شامل</label>
+            <div class="global-search-box"><i class="fi fi-rr-search" aria-hidden="true"></i><input id="globalSearch" placeholder="بحث شامل: طالب، محاضر، إيصال..." autocomplete="off" /></div>
+            <div id="globalSearchResults" class="search-results hidden" role="listbox"></div>
+          </div>
           <div class="refresh-control" aria-label="تحديث البيانات">
             <button id="refreshBtn" class="btn refresh-btn" type="button" title="تحديث الآن"><i class="fi fi-rr-refresh" aria-hidden="true"></i><span>تحديث</span></button>
             <label class="auto-refresh-toggle" title="تحديث البيانات تلقائيًا كل 30 ثانية">
@@ -115,19 +122,31 @@
       </section>
 
       <section id="lecturers" class="page">
-        <div class="panel"><div class="panel-head"><h3><i class="fi fi-rr-chalkboard-user" aria-hidden="true"></i> المحاضرون</h3><input id="lecturerSearch" aria-label="بحث في المحاضرين" placeholder="بحث بالاسم أو الهاتف أو المادة" /></div><div class="table-wrap"><table><thead><tr><th>المحاضر</th><th>المادة</th><th>الهاتف</th><th>الطلاب</th><th>اشتراك شهري</th><th>رسوم الطالب</th><th>انتهاء الاشتراك</th><th>الحالة</th><th>إجراءات</th></tr></thead><tbody id="lecturersBody"></tbody></table></div></div>
+        <div class="panel"><div class="panel-head"><div><h3><i class="fi fi-rr-chalkboard-user" aria-hidden="true"></i> المحاضرون</h3><p class="muted">عرض وتصفية وإدارة المحاضرين.</p></div><div class="table-tools"><input id="lecturerSearch" aria-label="بحث في المحاضرين" placeholder="بحث بالاسم أو الهاتف أو المادة" /><select id="lecturerStatusFilter" aria-label="فلتر حالة المحاضر"><option value="all">كل الحالات</option><option value="active">نشط</option><option value="due_soon">ينتهي قريبًا</option><option value="expired">منتهي</option><option value="unpaid">بدون اشتراك</option><option value="suspended">موقوف</option></select><button class="btn" data-export="lecturers"><i class="fi fi-rr-download"></i><span>Export CSV</span></button></div></div><div class="table-wrap"><table><thead><tr><th>المحاضر</th><th>المادة</th><th>الهاتف</th><th>الطلاب</th><th>اشتراك شهري</th><th>رسوم الطالب</th><th>انتهاء الاشتراك</th><th>الحالة</th><th>إجراءات</th></tr></thead><tbody id="lecturersBody"></tbody></table></div><div id="lecturersPager" class="pager"></div></div>
       </section>
 
       <section id="students" class="page">
-        <div class="panel"><div class="panel-head"><h3><i class="fi fi-rr-users-class" aria-hidden="true"></i> الطلاب</h3><input id="studentSearch" aria-label="بحث في الطلاب" placeholder="بحث بالاسم أو الكود أو الهاتف" /></div><div class="table-wrap"><table><thead><tr><th>الكود</th><th>الطالب</th><th>الهاتف</th><th>ولي الأمر</th><th>المحاضرون</th><th>المطلوب</th><th>المدفوع</th><th>المتبقي</th><th>إجراءات</th></tr></thead><tbody id="studentsBody"></tbody></table></div></div>
+        <div class="panel"><div class="panel-head"><div><h3><i class="fi fi-rr-users-class" aria-hidden="true"></i> الطلاب</h3><p class="muted">عرض الطلاب وأرصدتهم وتسجيلاتهم.</p></div><div class="table-tools"><input id="studentSearch" aria-label="بحث في الطلاب" placeholder="بحث بالاسم أو الكود أو الهاتف" /><select id="studentBalanceFilter" aria-label="فلتر رصيد الطالب"><option value="all">كل الأرصدة</option><option value="outstanding">عليه متبقي</option><option value="paid">مسدد بالكامل</option></select><button class="btn" data-export="students"><i class="fi fi-rr-download"></i><span>Export CSV</span></button></div></div><div class="table-wrap"><table><thead><tr><th>الكود</th><th>الطالب</th><th>الهاتف</th><th>ولي الأمر</th><th>المحاضرون</th><th>المطلوب</th><th>المدفوع</th><th>المتبقي</th><th>إجراءات</th></tr></thead><tbody id="studentsBody"></tbody></table></div><div id="studentsPager" class="pager"></div></div>
       </section>
 
       <section id="enrollments" class="page">
-        <div class="panel"><div class="panel-head"><h3><i class="fi fi-rr-clipboard-list-check" aria-hidden="true"></i> تسجيلات الطلاب مع المحاضرين</h3><input id="enrollmentSearch" aria-label="بحث في التسجيلات" placeholder="بحث بالطالب أو المحاضر" /></div><div class="table-wrap"><table><thead><tr><th>الطالب</th><th>المحاضر</th><th>المادة</th><th>التاريخ</th><th>المطلوب</th><th>المدفوع</th><th>المتبقي</th><th>الحالة</th><th>إجراءات</th></tr></thead><tbody id="enrollmentsBody"></tbody></table></div></div>
+        <div class="panel"><div class="panel-head"><div><h3><i class="fi fi-rr-clipboard-list-check" aria-hidden="true"></i> تسجيلات الطلاب مع المحاضرين</h3></div><div class="table-tools"><input id="enrollmentSearch" aria-label="بحث في التسجيلات" placeholder="بحث بالطالب أو المحاضر" /><select id="enrollmentPaymentFilter"><option value="all">كل حالات الدفع</option><option value="paid">مدفوع</option><option value="partial">جزئي</option><option value="unpaid">غير مدفوع</option></select><button class="btn" data-export="enrollments"><i class="fi fi-rr-download"></i><span>Export CSV</span></button></div></div><div class="table-wrap"><table><thead><tr><th>الطالب</th><th>المحاضر</th><th>المادة</th><th>التاريخ</th><th>المطلوب</th><th>المدفوع</th><th>المتبقي</th><th>الحالة</th><th>إجراءات</th></tr></thead><tbody id="enrollmentsBody"></tbody></table></div><div id="enrollmentsPager" class="pager"></div></div>
       </section>
 
       <section id="payments" class="page">
-        <div class="panel"><div class="panel-head"><h3><i class="fi fi-rr-receipt" aria-hidden="true"></i> سجل المدفوعات</h3><input id="paymentSearch" aria-label="بحث في المدفوعات" placeholder="بحث بالاسم أو رقم الإيصال" /></div><div class="table-wrap"><table><thead><tr><th>الإيصال</th><th>النوع</th><th>الاسم</th><th>المبلغ</th><th>الطريقة</th><th>التاريخ</th></tr></thead><tbody id="paymentsBody"></tbody></table></div></div>
+        <div class="panel"><div class="panel-head"><div><h3><i class="fi fi-rr-receipt" aria-hidden="true"></i> سجل المدفوعات</h3></div><div class="table-tools"><input id="paymentSearch" aria-label="بحث في المدفوعات" placeholder="بحث بالاسم أو رقم الإيصال" /><select id="paymentTypeFilter"><option value="all">كل الأنواع</option><option value="student_enrollment">رسوم طالب</option><option value="lecturer_subscription">اشتراك محاضر</option></select><button class="btn" data-export="payments"><i class="fi fi-rr-download"></i><span>Export CSV</span></button></div></div><div class="table-wrap"><table><thead><tr><th>الإيصال</th><th>النوع</th><th>الاسم</th><th>المبلغ</th><th>الطريقة</th><th>التاريخ</th><th>إجراءات</th></tr></thead><tbody id="paymentsBody"></tbody></table></div><div id="paymentsPager" class="pager"></div></div>
+      </section>
+
+
+      <section id="outstanding" class="page">
+        <div class="grid-2">
+          <div class="panel"><div class="panel-head"><h3><i class="fi fi-rr-money-bill-wave"></i> رسوم طلاب متبقية</h3><button class="btn" data-export="outstanding"><i class="fi fi-rr-download"></i><span>Export CSV</span></button></div><div class="table-wrap"><table><thead><tr><th>الطالب</th><th>المحاضر</th><th>المطلوب</th><th>المدفوع</th><th>المتبقي</th><th>إجراء</th></tr></thead><tbody id="outstandingEnrollmentsBody"></tbody></table></div></div>
+          <div class="panel"><div class="panel-head"><h3><i class="fi fi-rr-clock"></i> اشتراكات محاضرين مستحقة</h3></div><div class="table-wrap"><table><thead><tr><th>المحاضر</th><th>المادة</th><th>الانتهاء</th><th>الحالة</th><th>إجراء</th></tr></thead><tbody id="outstandingLecturersBody"></tbody></table></div></div>
+        </div>
+      </section>
+
+      <section id="archived" class="page">
+        <div class="panel"><div class="panel-head"><div><h3><i class="fi fi-rr-archive"></i> الأرشيف والحذف المخصص</h3><p class="muted">الاسترجاع متاح حسب الصلاحية. الحذف النهائي Owner فقط ويُمنع عند وجود تاريخ مالي أو تسجيلات مرتبطة.</p></div><select id="archiveTypeFilter"><option value="all">الكل</option><option value="lecturer">المحاضرون</option><option value="student">الطلاب</option></select></div><div class="table-wrap"><table><thead><tr><th>النوع</th><th>الاسم</th><th>الهاتف/الكود</th><th>تسجيلات</th><th>مدفوعات</th><th>إجراءات</th></tr></thead><tbody id="archivedBody"></tbody></table></div><div id="archivedPager" class="pager"></div></div>
       </section>
 
       <section id="finance" class="page">
@@ -151,7 +170,7 @@
           <label>الاشتراك الشهري الافتراضي<input name="default_monthly_fee" type="number" min="0" step="0.01" /></label>
           <label>رسوم الطالب الافتراضية<input name="default_student_fee" type="number" min="0" step="0.01" /></label>
           <label>أيام التنبيه قبل انتهاء الاشتراك<input name="subscription_warning_days" type="number" min="1" max="60" /></label>
-          <div class="full"><button class="btn primary" data-permission="settings.manage">حفظ الإعدادات</button></div>
+          <div class="full settings-actions"><button class="btn primary" data-permission="settings.manage">حفظ الإعدادات</button><button type="button" class="btn" data-system-check><i class="fi fi-rr-stethoscope"></i><span>فحص النظام</span></button></div>
         </form>
       </section>
     </main>
@@ -176,6 +195,12 @@
   <dialog id="paymentModal"><form id="paymentForm" class="modal-form"><div class="modal-head"><h3>تسجيل دفعة طالب</h3><button type="button" class="icon-btn" data-close aria-label="إغلاق">×</button></div><input type="hidden" name="enrollment_id" />
     <div class="form-grid"><label>المبلغ<input name="amount" type="number" min="0.01" step="0.01" required /></label><label>طريقة الدفع<select name="payment_method"><option>Cash</option><option>InstaPay</option><option>Vodafone Cash</option><option>Bank Transfer</option><option>Card</option><option>Other</option></select></label><label class="full">مرجع العملية<input name="reference" maxlength="160" /></label><label class="full">ملاحظات<textarea name="notes" maxlength="1000"></textarea></label></div>
     <div class="modal-actions"><button type="button" class="btn ghost" data-close>إلغاء</button><button class="btn primary">حفظ الدفعة</button></div></form></dialog>
+
+  <dialog id="profileModal"><div class="modal-form xwide"><div class="modal-head"><h3 id="profileTitle">الملف الشخصي</h3><button type="button" class="icon-btn" data-close aria-label="إغلاق">×</button></div><div id="profileContent" class="profile-content"></div><div class="modal-actions"><button type="button" class="btn" data-close>إغلاق</button></div></div></dialog>
+
+  <dialog id="receiptModal"><div class="modal-form receipt-dialog"><div class="modal-head no-print"><h3>الإيصال</h3><button type="button" class="icon-btn" data-close aria-label="إغلاق">×</button></div><div id="receiptPrintArea" class="receipt-sheet"></div><div class="modal-actions no-print"><button type="button" class="btn" data-close>إغلاق</button><button type="button" id="printReceiptBtn" class="btn primary"><i class="fi fi-rr-print"></i><span>طباعة الإيصال</span></button></div></div></dialog>
+
+  <dialog id="deleteModal"><form id="deleteForm" class="modal-form"><div class="modal-head"><h3>الحذف المخصص</h3><button type="button" class="icon-btn" data-close aria-label="إغلاق">×</button></div><input type="hidden" name="entity_type"/><input type="hidden" name="entity_id"/><div class="danger-box"><strong id="deleteEntityName"></strong><p>الحذف النهائي لا يمكن التراجع عنه، ومتاح للـOwner فقط إذا لم توجد أي سجلات تاريخية مرتبطة.</p></div><label>للتأكيد اكتب <strong>DELETE</strong><input name="confirm_text" autocomplete="off" required /></label><div class="modal-actions"><button type="button" class="btn ghost" data-close>إلغاء</button><button type="submit" class="btn danger-solid">حذف نهائي</button></div></form></dialog>
 
   <dialog id="adminModal"><form id="adminForm" class="modal-form wide"><div class="modal-head"><h3>حساب المسؤول</h3><button type="button" class="icon-btn" data-close aria-label="إغلاق">×</button></div><input type="hidden" name="id" />
     <div class="form-grid"><label>الاسم الكامل<input name="full_name" required maxlength="160" /></label><label>اسم المستخدم<input name="username" required minlength="3" maxlength="80" dir="auto" /></label><label>الدور<select name="role"><option value="owner" disabled>Owner — Primary Account</option><option value="super_admin">Super Admin</option><option value="manager">Manager</option><option value="finance">Finance Admin</option><option value="data_entry">Data Entry</option><option value="viewer">Viewer</option><option value="custom">Custom</option></select></label><label>الحالة<select name="status"><option value="active">نشط</option><option value="suspended">موقوف</option></select></label><label id="adminPasswordField" class="full">كلمة المرور<input name="password" type="password" minlength="10" autocomplete="new-password" /></label><fieldset class="full permissions-box"><legend>الصلاحيات</legend><div id="permissionsGrid" class="permissions-grid"></div></fieldset></div>
