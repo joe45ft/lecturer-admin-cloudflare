@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <meta name="robots" content="noindex,nofollow,noarchive" />
   <meta name="color-scheme" content="light dark" />
+  <meta name="theme-color" content="#f5f7fb" />
   <title>Lecturer Manager</title>
   <script>
     (()=>{
@@ -17,7 +18,7 @@
   </script>
   <link rel="preconnect" href="https://cdn-uicons.flaticon.com" crossorigin />
   <link rel="stylesheet" href="https://cdn-uicons.flaticon.com/4.0.0/uicons-regular-rounded/css/uicons-regular-rounded.css" />
-  <link rel="stylesheet" href="/style.css" />
+  <link rel="stylesheet" href="/style.css?v=2.2.3" />
 </head>
 <body>
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
@@ -39,7 +40,7 @@
         <div><strong>التفاصيل:</strong> <code id="systemDetail">-</code></div>
       </div>
       <button id="retrySystemBtn" class="btn primary wide" type="button">إعادة الفحص</button>
-      <small class="muted">نسخة v2.2.2 لا تحتاج ADMIN_USERNAME أو ADMIN_PASSWORD أو SESSION_SECRET.</small>
+      <small class="muted">نسخة v2.2.3 لا تحتاج ADMIN_USERNAME أو ADMIN_PASSWORD أو SESSION_SECRET.</small>
     </div>
   </section>
 
@@ -234,6 +235,6 @@
 
   <dialog id="changePasswordModal"><form id="changePasswordForm" class="modal-form"><div class="modal-head"><h3>تغيير كلمة المرور</h3><button type="button" class="icon-btn" data-close aria-label="إغلاق">×</button></div><label>كلمة المرور الحالية<input name="current_password" type="password" required autocomplete="current-password" /></label><label>كلمة المرور الجديدة<input name="new_password" type="password" minlength="10" required autocomplete="new-password" /></label><div class="modal-actions"><button type="button" class="btn ghost" data-close>إلغاء</button><button class="btn primary">تغيير</button></div></form></dialog>
 
-  <script src="/app.js"></script>
+  <script src="/app.js?v=2.2.3"></script>
 </body>
 </html>
